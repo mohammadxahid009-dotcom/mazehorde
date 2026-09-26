@@ -334,22 +334,23 @@
 
     <div id="game-container"></div>
 
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, updateDoc, deleteDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    <script>
 
         const MAP_SIZE = 1000; 
         const MAZE_TILES = 200; 
         const TILE_SIZE = 5;
 
-        const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'maze-horde-local';
-        const FB_CONFIG = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const DEFAULT_WORLD_SEED = 938271;
+        let worldSeed = DEFAULT_WORLD_SEED;
         
         let pixelatedModeActive = false;
         const pixelSize = 4; // Factor to downsample the game resolution for retro aesthetic
         
-        let app, auth, db, currentUser;
+        let socket = null;
+        let playerId = null;
+        let currentUser = null;
+        let socketConnected = false;
+        let pendingJoinError = null;
         let isMultiplayer = false;
         let isHost = false;
         let currentLobbyId = null;
@@ -362,6 +363,166 @@
         let pingAccumulator = 0;
         let pingCount = 0;
         let lastPacketTime = 0;
+
+        function seededRandom(seed) {
+            let value = seed >>> 0;
+            return () => {
+                value += 0x6D2B79F5;
+                let t = value;
+                t = Math.imul(t ^ (t >>> 15), t | 1);
+                t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+                return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+            };
+        }
+
+        function sendNetwork(message) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify(message));
+                return true;
+            }
+            return false;
+        }
+
+        function setNetworkStatus(text, color = "#888") {
+            connStatus.innerText = text;
+            connStatus.style.color = color;
+        }
+
+        function connectNetwork() {
+            if (window.location.protocol === 'file:') {
+                setNetworkStatus("SERVE WITH NODE FOR MULTIPLAYER");
+                return;
+            }
+
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            socket = new WebSocket(`${protocol}//${window.location.host}`);
+            setNetworkStatus("CONNECTING TO MATCH SERVER...");
+
+            socket.addEventListener('open', () => {
+                socketConnected = true;
+                setNetworkStatus("MATCH SERVER ONLINE", "#00ff88");
+            });
+
+            socket.addEventListener('message', (event) => {
+                try {
+                    handleNetworkMessage(JSON.parse(event.data));
+                } catch (error) {
+                    console.warn("Invalid network packet", error);
+                }
+            });
+
+            socket.addEventListener('close', () => {
+                socketConnected = false;
+                if (gameActive) {
+                    setNetworkStatus("MATCH SERVER LOST", "#ff3333");
+                } else {
+                    setNetworkStatus("MATCH SERVER OFFLINE", "#ff3333");
+                }
+            });
+
+            socket.addEventListener('error', () => {
+                socketConnected = false;
+                setNetworkStatus("MATCH SERVER UNAVAILABLE", "#ff3333");
+            });
+        }
+
+        function handleNetworkMessage(message) {
+            switch (message.type) {
+                case 'hello':
+                    playerId = message.playerId;
+                    currentUser = { uid: playerId };
+                    break;
+                case 'lobby':
+                    receiveLobby(message.lobby);
+                    break;
+                case 'state':
+                    receiveRemoteState(message.slot, message.state);
+                    break;
+                case 'scan':
+                    if (message.timestamp > lastScanTrigger) {
+                        lastScanTrigger = message.timestamp;
+                        triggerEnemyScanVisual();
+                    }
+                    break;
+                case 'cubes':
+                    receiveCubeCount(message.count);
+                    break;
+                case 'game-over':
+                    if (!gameActive) return;
+                    if (message.winner === 'seeker') handleDefeat(true);
+                    else handleHiderWin(!amISeeker);
+                    break;
+                case 'browser':
+                    renderBrowser(message.lobbies || []);
+                    break;
+                case 'error':
+                    if (pendingJoinError) {
+                        pendingJoinError.innerText = message.message;
+                        pendingJoinError.style.display = 'block';
+                        pendingJoinError = null;
+                    } else {
+                        setNetworkStatus(message.message, "#ff3333");
+                    }
+                    break;
+            }
+        }
+
+        function receiveLobby(nextLobby) {
+            lobbyData = nextLobby;
+            currentLobbyId = nextLobby.code;
+            isHost = nextLobby.hostId === playerId;
+            if (nextLobby.seed) worldSeed = nextLobby.seed;
+            updateLobbyUI();
+
+            if (nextLobby.status === 'playing' && !gameActive) {
+                isMultiplayer = true;
+                startGameSequence();
+            }
+
+            if (nextLobby.status === 'playing' && gameActive) {
+                applyRemoteSnapshot(nextLobby.state);
+            }
+        }
+
+        function receiveRemoteState(slot, state) {
+            if (!lobbyData || !state) return;
+            if (!lobbyData.state) lobbyData.state = {};
+            lobbyData.state[slot] = state;
+            applyRemoteSnapshot(lobbyData.state);
+        }
+
+        function applyRemoteSnapshot(states) {
+            if (!states || !singleEnemy) return;
+            const enemyKey = isHost ? 'p2' : 'p1';
+            const enemyState = states[enemyKey];
+            if (!enemyState) return;
+
+            networkTarget.x = enemyState.x;
+            networkTarget.z = enemyState.z;
+            networkTarget.r = enemyState.r;
+            if (enemyState.captured) {
+                handleDefeat(true);
+            }
+        }
+
+        function receiveCubeCount(count) {
+            const nextCount = Number(count);
+            if (!Number.isFinite(nextCount) || nextCount <= cubesCollected) return;
+            if (amISeeker) {
+                if (nextCount >= maxCubesToWin) handleHiderWin(false);
+                return;
+            }
+            updateCubeUI(nextCount);
+            if (realCube) realCube.position.set(0, -999, 0);
+            if (fakeCube) fakeCube.position.set(0, -999, 0);
+            if (realBeam) realBeam.position.set(0, -999, 0);
+            if (fakeBeam) fakeBeam.position.set(0, -999, 0);
+            if (nextCount >= maxCubesToWin) {
+                handleHiderWin(true);
+            } else {
+                spawnNextCubePair();
+            }
+        }
         
         let cubesCollected = 0; 
         const maxCubesToWin = 5; 
@@ -395,51 +556,17 @@
 
         const connStatus = document.getElementById('conn-status');
         
-        async function initFirebase() {
-            if (!FB_CONFIG) {
-                connStatus.innerText = "NO NETWORK DETECTED (Offline Mode Only)";
-                return;
-            }
-            try {
-                app = initializeApp(FB_CONFIG);
-                auth = getAuth(app);
-                db = getFirestore(app);
-                
-                connStatus.innerText = "AUTHENTICATING...";
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
+        connectNetwork();
 
-                onAuthStateChanged(auth, (user) => {
-                    currentUser = user;
-                    if (user) {
-                        connStatus.innerText = "SYSTEM ONLINE - CONNECTED";
-                        connStatus.style.color = "#00ff88";
-                    } else {
-                        connStatus.innerText = "DISCONNECTED";
-                        connStatus.style.color = "#ff3333";
-                    }
-                });
-            } catch (e) {
-                connStatus.innerText = "NETWORK ERROR";
-                connStatus.style.color = "#ff3333";
-            }
-        }
-
-        initFirebase();
-
-        const COLLECTION_NAME = 'lobbies';
-        const generateCode = () => Math.random().toString(36).substring(2, 6).toUpperCase();
-        const getLobbyRef = (id) => doc(db, 'artifacts', APP_ID, 'public', 'data', COLLECTION_NAME, id);
-        const getLobbiesCol = () => collection(db, 'artifacts', APP_ID, 'public', 'data', COLLECTION_NAME);
-
-        window.resetToMainMenu = function() {
+        window.resetToMainMenu = function(notifyServer = true) {
+            if (notifyServer && currentLobbyId) sendNetwork({ type: 'leave' });
             gameActive = false;
             isMultiplayer = false;
             currentLobbyId = null;
+            lobbyData = null;
+            isHost = false;
             if (unsubscribeLobby) { unsubscribeLobby(); unsubscribeLobby = null; }
+            if (networkUpdateInterval) { clearInterval(networkUpdateInterval); networkUpdateInterval = null; }
             if (document.pointerLockElement === document.body) { document.exitPointerLock(); }
             
             document.getElementById('game-over-screen').style.display = 'none';
@@ -478,47 +605,22 @@
             startGameSequence();
         });
 
-        document.getElementById('btn-goto-host').addEventListener('click', async () => {
-            if (!currentUser) return;
-            const code = generateCode();
-            currentLobbyId = code;
-            isHost = true;
-            
-            const prefRole = document.querySelector('input[name="preferred-role"]:checked').value;
-            let hostRole = 'seeker';
-            if (prefRole === 'random') {
-                hostRole = Math.random() > 0.5 ? 'seeker' : 'hider';
-            } else {
-                hostRole = prefRole;
+        document.getElementById('btn-goto-host').addEventListener('click', () => {
+            if (!socketConnected || !currentUser) {
+                setNetworkStatus("MATCH SERVER REQUIRED FOR MULTIPLAYER", "#ff3333");
+                return;
             }
-
-            const initialData = {
-                status: 'waiting',
-                hostId: currentUser.uid,
-                createdAt: Date.now(),
-                players: {
-                    [currentUser.uid]: { name: "HOST (P1)", ready: false, role: hostRole }
-                },
-                state: { 
-                    p1: { x: 0, z: -15, r: 0, scanTrigger: 0, captured: false, cubesCollected: 0 }, 
-                    p2: { x: 0, z: 15, r: 0, scanTrigger: 0, captured: false, cubesCollected: 0 } 
-                }
-            };
-            
-            await setDoc(getLobbyRef(code), initialData);
-            document.getElementById('lobby-code-display').innerText = code;
-            showPanel('panel-lobby');
-            listenToLobby(code);
+            const prefRole = document.querySelector('input[name="preferred-role"]:checked').value;
+            sendNetwork({ type: 'create', preferredRole: prefRole });
         });
 
         document.getElementById('btn-goto-join').addEventListener('click', () => showPanel('panel-join'));
         document.getElementById('btn-cancel-join').addEventListener('click', () => showPanel('panel-main'));
         
-        document.getElementById('btn-submit-join').addEventListener('click', async () => {
+        document.getElementById('btn-submit-join').addEventListener('click', () => {
             const code = document.getElementById('input-join-code').value.toUpperCase();
             const errEl = document.getElementById('join-error');
             if(code.length !== 4) { errEl.innerText = "Invalid code format"; errEl.style.display = 'block'; return; }
-            
             joinLobby(code, errEl);
         });
 
@@ -529,142 +631,42 @@
         document.getElementById('btn-cancel-browser').addEventListener('click', () => showPanel('panel-main'));
         document.getElementById('btn-refresh-browser').addEventListener('click', refreshBrowser);
 
-        async function joinLobby(code, errEl) {
-            if (!currentUser) return;
-            const ref = getLobbyRef(code);
-            const snap = await getDoc(ref);
-            
-            if (!snap.exists()) {
-                if(errEl) { errEl.innerText = "Lobby not found"; errEl.style.display = 'block'; }
+        function joinLobby(code, errEl) {
+            if (!socketConnected || !currentUser) {
+                if (errEl) { errEl.innerText = "Match server unavailable"; errEl.style.display = 'block'; }
                 return;
             }
-            
-            const data = snap.data();
-            if (data.status !== 'waiting') {
-                if(errEl) { errEl.innerText = "Match already in progress"; errEl.style.display = 'block'; }
-                return;
-            }
-            
-            if (Object.keys(data.players).length >= 2 && !data.players[currentUser.uid]) {
-                if(errEl) { errEl.innerText = "Lobby is full"; errEl.style.display = 'block'; }
-                return;
-            }
-
-            const hostId = data.hostId;
-            const hostRole = data.players[hostId].role;
-            const myRole = hostRole === 'seeker' ? 'hider' : 'seeker';
-
-            const newPlayers = { ...data.players };
-            newPlayers[currentUser.uid] = { name: "PLAYER 2", ready: false, role: myRole };
-            
-            await updateDoc(ref, { players: newPlayers });
-            
-            currentLobbyId = code;
-            isHost = false;
-            document.getElementById('lobby-code-display').innerText = code;
-            if(errEl) errEl.style.display = 'none';
-            showPanel('panel-lobby');
-            listenToLobby(code);
+            pendingJoinError = errEl;
+            sendNetwork({ type: 'join', code });
         }
 
-        async function refreshBrowser() {
-            if (!currentUser) return;
+        function refreshBrowser() {
+            if (!socketConnected) return;
             const listEl = document.getElementById('browser-list');
             listEl.innerHTML = '<div class="loading-text">Scanning Frequencies...</div>';
-            
-            const snaps = await getDocs(getLobbiesCol());
+            sendNetwork({ type: 'list' });
+        }
+
+        function renderBrowser(lobbies) {
+            const listEl = document.getElementById('browser-list');
             let html = '';
-            const now = Date.now();
-            
-            snaps.forEach(doc => {
-                const data = doc.data();
-                if (data.status === 'waiting' && data.players && (now - data.createdAt < 3600000)) { 
-                    const pCount = Object.keys(data.players).length;
-                    if (pCount < 2) {
-                        html += `
-                        <div class="server-item">
-                            <div class="server-info">Host Lobby [${doc.id}] <div class="server-status">${pCount}/2 Players waiting</div></div>
-                            <button class="btn-join-small" onclick="window.triggerJoin('${doc.id}')">JOIN</button>
-                        </div>`;
-                    }
-                }
+            lobbies.forEach((lobby) => {
+                html += `
+                <div class="server-item">
+                    <div class="server-info">Host Lobby [${lobby.code}] <div class="server-status">${lobby.playerCount}/2 Players waiting</div></div>
+                    <button class="btn-join-small" onclick="window.triggerJoin('${lobby.code}')">JOIN</button>
+                </div>`;
             });
-            
             listEl.innerHTML = html === '' ? '<div style="color:#888; text-align:center; padding:20px;">No open networks found.</div>' : html;
         }
 
         window.triggerJoin = (code) => { joinLobby(code, null); };
 
-        function listenToLobby(code) {
-            if (unsubscribeLobby) unsubscribeLobby();
-            
-            unsubscribeLobby = onSnapshot(getLobbyRef(code), (doc) => {
-                if (!doc.exists()) {
-                    connStatus.innerText = "LOBBY CLOSED BY HOST";
-                    connStatus.style.color = "#ff3333";
-                    setTimeout(() => { if (currentUser) { connStatus.innerText = "SYSTEM ONLINE - CONNECTED"; connStatus.style.color = "#00ff88"; } }, 3000);
-                    resetToMainMenu();
-                    return;
-                }
-                lobbyData = doc.data();
-                updateLobbyUI();
-                
-                if (lobbyData.status === 'playing' && !gameActive) {
-                    isMultiplayer = true;
-                    startGameSequence();
-                }
-
-                if (lobbyData.status === 'playing' && gameActive) {
-                    const now = performance.now();
-                    if (lastPacketTime > 0) {
-                        pingAccumulator += (now - lastPacketTime);
-                        pingCount++;
-                        if (pingCount >= 10) {
-                            document.getElementById('hud-ping').innerText = `${Math.floor(pingAccumulator/10)} ms`;
-                            pingAccumulator = 0; pingCount = 0;
-                        }
-                    }
-                    lastPacketTime = now;
-
-                    const enemyKey = isHost ? 'p2' : 'p1';
-                    const eData = lobbyData.state[enemyKey];
-                    if (eData) {
-                        networkTarget.x = eData.x;
-                        networkTarget.z = eData.z;
-                        networkTarget.r = eData.r;
-                        
-                        if (amISeeker) {
-                            if (eData.cubesCollected !== undefined && eData.cubesCollected !== cubesCollected) {
-                                updateCubeUI(eData.cubesCollected);
-                            }
-                        }
-
-                        if (eData.captured && !amISeeker) {
-                            handleDefeat(false);
-                        } else if (eData.captured && amISeeker) {
-                            handleDefeat(true); 
-                        }
-                        
-                        if (eData.scanTrigger > lastScanTrigger) {
-                            lastScanTrigger = eData.scanTrigger;
-                            triggerEnemyScanVisual();
-                        }
-
-                        if (!amISeeker && cubesCollected >= maxCubesToWin) {
-                            handleHiderWin(true);
-                        } else if (amISeeker && cubesCollected >= maxCubesToWin) {
-                            handleHiderWin(false);
-                        }
-                    }
-                }
-            });
-        }
-
         function updateLobbyUI() {
             if (!lobbyData) return;
-            const pKeys = Object.keys(lobbyData.players);
-            const p1 = lobbyData.players[pKeys[0]];
-            const p2 = pKeys.length > 1 ? lobbyData.players[pKeys[1]] : null;
+            const players = Object.values(lobbyData.players || {});
+            const p1 = players.find((player) => player.slot === 'p1');
+            const p2 = players.find((player) => player.slot === 'p2');
             
             const slot1 = document.getElementById('slot-p1');
             const slot2 = document.getElementById('slot-p2');
@@ -689,30 +691,27 @@
             const btnStart = document.getElementById('btn-start-match');
             if (isHost) {
                 btnStart.style.display = 'block';
-                const allReady = pKeys.length === 2 && p1.ready && p2.ready;
+                const allReady = Boolean(p1 && p2 && p1.ready && p2.ready);
                 btnStart.disabled = !allReady;
             } else {
                 btnStart.style.display = 'none';
             }
         }
 
-        document.getElementById('btn-toggle-ready').addEventListener('click', async () => {
+        document.getElementById('btn-toggle-ready').addEventListener('click', () => {
             if (!lobbyData || !currentUser) return;
-            const newPlayers = { ...lobbyData.players };
-            newPlayers[currentUser.uid].ready = !newPlayers[currentUser.uid].ready;
-            await updateDoc(getLobbyRef(currentLobbyId), { players: newPlayers });
+            const me = lobbyData.players[currentUser.uid];
+            if (me) sendNetwork({ type: 'ready', ready: !me.ready });
         });
 
-        document.getElementById('btn-start-match').addEventListener('click', async () => {
+        document.getElementById('btn-start-match').addEventListener('click', () => {
             if (!isHost || !lobbyData) return;
-            await updateDoc(getLobbyRef(currentLobbyId), { status: 'playing' });
+            sendNetwork({ type: 'start' });
         });
 
-        document.getElementById('btn-leave-lobby').addEventListener('click', async () => {
-            if (isHost && currentLobbyId) {
-                await deleteDoc(getLobbyRef(currentLobbyId));
-            }
-            resetToMainMenu();
+        document.getElementById('btn-leave-lobby').addEventListener('click', () => {
+            sendNetwork({ type: 'leave' });
+            resetToMainMenu(false);
         });
 
         let scene, camera, renderer;
@@ -984,6 +983,7 @@
 
         function createMaze() {
             const h = 8; 
+            const random = seededRandom(worldSeed);
             const wallMat = createPBRMaterial('wall'); applyRepeat(wallMat, TILE_SIZE / 10, h / 10);
             const { barkMat, leafMat } = createTreeMaterials();
             
@@ -991,7 +991,7 @@
                 mazeData[y] = []; flowField[y] = [];
                 for (let x = 0; x < MAZE_TILES; x++) {
                     if (x === 0 || x === MAZE_TILES-1 || y === 0 || y === MAZE_TILES-1) { mazeData[y][x] = 1; } 
-                    else { mazeData[y][x] = Math.random() > 0.82 ? 1 : 0; }
+                    else { mazeData[y][x] = random() > 0.82 ? 1 : 0; }
                     flowField[y][x] = 9999;
                 }
             }
@@ -1000,7 +1000,7 @@
             for(let dy=-4; dy<=4; dy++){ for(let dx=-4; dx<=4; dx++){ mazeData[cz+dy][cx+dx] = 0; } }
 
             for(let i = 0; i < 500; i++) { 
-                let tx = Math.floor(Math.random() * (MAZE_TILES - 6)) + 3; let tz = Math.floor(Math.random() * (MAZE_TILES - 6)) + 3;
+                let tx = Math.floor(random() * (MAZE_TILES - 6)) + 3; let tz = Math.floor(random() * (MAZE_TILES - 6)) + 3;
                 if (Math.abs(tx - cx) < 10 && Math.abs(tz - cz) < 10) continue;
                 if (mazeData[tz][tx] === 0) {
                     let wx = (tx - MAZE_TILES/2) * TILE_SIZE + TILE_SIZE/2; 
@@ -1013,7 +1013,7 @@
             for (let y = 0; y < MAZE_TILES; y++) {
                 for (let x = 0; x < MAZE_TILES; x++) {
                     if (mazeData[y][x] === 1) {
-                        let isBuilding = Math.random() > 0.85; let currentH = isBuilding ? h + 10 + Math.random() * 25 : h;
+                        let isBuilding = random() > 0.85; let currentH = isBuilding ? h + 10 + random() * 25 : h;
                         let wallGeom = new THREE.BoxGeometry(TILE_SIZE, currentH, TILE_SIZE);
                         let mesh = new THREE.Mesh(wallGeom, wallMat);
                         let wx = (x - MAZE_TILES/2) * TILE_SIZE + TILE_SIZE/2; let wz = (y - MAZE_TILES/2) * TILE_SIZE + TILE_SIZE/2;
@@ -1106,11 +1106,12 @@
             try {
                 let rx = 0, rz = 0; let fx = 0, fz = 0; let valid = false; let attempts = 0;
                 const px = camera.position.x; const pz = camera.position.z;
+                const random = seededRandom((worldSeed + (cubesCollected + 1) * 7919) >>> 0);
 
                 while(!valid && attempts < 1000) {
                     attempts++;
-                    const tx = Math.floor(Math.random() * (MAZE_TILES - 8)) + 4;
-                    const tz = Math.floor(Math.random() * (MAZE_TILES - 8)) + 4;
+                    const tx = Math.floor(random() * (MAZE_TILES - 8)) + 4;
+                    const tz = Math.floor(random() * (MAZE_TILES - 8)) + 4;
                     if(mazeData[tz] && mazeData[tz][tx] === 0) {
                         rx = (tx - MAZE_TILES/2) * TILE_SIZE + TILE_SIZE/2;
                         rz = (tz - MAZE_TILES/2) * TILE_SIZE + TILE_SIZE/2;
@@ -1124,8 +1125,8 @@
                 attempts = 0;
                 while(!valid && attempts < 1000) {
                     attempts++;
-                    const tx = Math.floor(Math.random() * (MAZE_TILES - 8)) + 4;
-                    const tz = Math.floor(Math.random() * (MAZE_TILES - 8)) + 4;
+                    const tx = Math.floor(random() * (MAZE_TILES - 8)) + 4;
+                    const tz = Math.floor(random() * (MAZE_TILES - 8)) + 4;
                     if(mazeData[tz] && mazeData[tz][tx] === 0) {
                         fx = (tx - MAZE_TILES/2) * TILE_SIZE + TILE_SIZE/2;
                         fz = (tz - MAZE_TILES/2) * TILE_SIZE + TILE_SIZE/2;
@@ -1144,6 +1145,7 @@
                 if (realCube && realCube.userData) {
                     realCube.userData.revealTimer = 0;
                     realCube.userData.revealedThisScan = false;
+                    realCube.userData.collectRequested = false;
                 }
                 if (fakeCube && fakeCube.userData) {
                     fakeCube.userData.revealTimer = 0;
@@ -1163,11 +1165,17 @@
 
             const distReal = playerPos.distanceTo(realCube.position);
             if (distReal < 3.2 && realCube.position.y > -50) { 
-                
                 realCube.position.set(0, -999, 0); 
                 if (realBeam) realBeam.position.set(0, -999, 0); 
                 if (realBeam && realBeam.material) realBeam.material.opacity = 0;
                 realCube.userData.revealTimer = 0;
+
+                if (isMultiplayer) {
+                    if (realCube.userData.collectRequested) return;
+                    realCube.userData.collectRequested = true;
+                    sendNetwork({ type: 'collect', count: Number(cubesCollected) + 1 });
+                    return;
+                }
 
                 updateCubeUI(Number(cubesCollected) + 1);
 
@@ -1313,6 +1321,22 @@
             if (isMultiplayer) {
                 const myData = lobbyData.players[currentUser.uid];
                 amISeeker = myData.role === 'seeker';
+                const myKey = isHost ? 'p1' : 'p2';
+                const enemyKey = isHost ? 'p2' : 'p1';
+                const myState = lobbyData.state && lobbyData.state[myKey];
+                const enemyState = lobbyData.state && lobbyData.state[enemyKey];
+                if (myState) {
+                    camera.position.set(myState.x, DEFAULT_CAMERA_Y, myState.z);
+                    yaw = myState.r || 0;
+                    camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, currentRoll, 'YXZ'));
+                }
+                if (enemyState && singleEnemy) {
+                    singleEnemy.position.set(enemyState.x, 0, enemyState.z);
+                    singleEnemy.rotation.y = enemyState.r || 0;
+                    networkTarget.x = enemyState.x;
+                    networkTarget.z = enemyState.z;
+                    networkTarget.r = enemyState.r || 0;
+                }
             } else {
                 const prefRole = document.querySelector('input[name="preferred-role"]:checked').value;
                 if (prefRole === 'random') {
@@ -1375,6 +1399,7 @@
             if (isMultiplayer) {
                 if (networkUpdateInterval) clearInterval(networkUpdateInterval);
                 networkUpdateInterval = setInterval(broadcastNetworkState, 150);
+                broadcastNetworkState();
             }
 
             if (isTouchDevice) {
@@ -1385,33 +1410,21 @@
             }
         }
 
-        async function broadcastNetworkState() {
+        function broadcastNetworkState() {
             if (!gameActive || !currentUser || !currentLobbyId) return;
             const myKey = isHost ? 'p1' : 'p2';
-            
-            const stateUpdate = {};
-            stateUpdate[`state.${myKey}`] = {
+
+            sendNetwork({
+                type: 'state',
+                state: {
                 x: camera.position.x,
                 z: camera.position.z,
                 r: yaw,
                 scanTrigger: myScanTriggerTimestamp,
                 captured: false,
                 cubesCollected: cubesCollected
-            };
-
-            if (isHost && amISeeker && freezeTimerValue <= 0 && singleEnemy) {
-                const dist = singleEnemy.position.distanceTo(camera.position);
-                if (dist < 4.5) {
-                    stateUpdate[`state.p1.captured`] = true; 
                 }
-            } else if (isHost && !amISeeker && freezeTimerValue <= 0 && singleEnemy) {
-                const dist = singleEnemy.position.distanceTo(camera.position);
-                if (dist < 4.5) {
-                    stateUpdate[`state.p2.captured`] = true;
-                }
-            }
-            
-            try { await updateDoc(getLobbyRef(currentLobbyId), stateUpdate); } catch (e) {}
+            });
         }
 
         function triggerScan() {
@@ -1428,6 +1441,7 @@
                 scanData.origin.copy(camera.position);
                 scanData.distance = 0; scanData.active = 1.0; scanData.hasRevealedEnemy = false;
                 myScanTriggerTimestamp = Date.now(); 
+                if (isMultiplayer) sendNetwork({ type: 'scan', timestamp: myScanTriggerTimestamp });
                 
                 if (realCube && realCube.userData) realCube.userData.revealedThisScan = false;
                 if (fakeCube && fakeCube.userData) fakeCube.userData.revealedThisScan = false;
