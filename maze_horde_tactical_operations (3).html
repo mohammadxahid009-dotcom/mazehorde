@@ -229,25 +229,25 @@
         
         <div id="panel-main" class="mp-panel active">
             <div class="role-selector">
-                <div style="color: #fff; margin-bottom: 8px; text-transform: uppercase; font-size: 0.9rem; letter-spacing: 1px; text-align: center;">Select Protocol Role:</div>
+                <div style="color: #fff; margin-bottom: 8px; text-transform: uppercase; font-size: 0.9rem; letter-spacing: 1px; text-align: center;">Choose Your Role<br><span style="color:#888; font-size:0.72rem; letter-spacing:0;">The other player gets the opposite role</span></div>
                 <div style="display: flex; gap: 10px; margin-bottom: 20px; justify-content: center;">
                     <label class="role-btn"><input type="radio" name="preferred-role" value="random" checked><span>RANDOM</span></label>
                     <label class="role-btn seeker-btn"><input type="radio" name="preferred-role" value="seeker"><span>SEEKER</span></label>
                     <label class="role-btn hider-btn"><input type="radio" name="preferred-role" value="hider"><span>HIDER</span></label>
                 </div>
             </div>
-            <button class="btn-mp" id="btn-goto-host">Host LAN Match</button>
-            <button class="btn-mp" id="btn-goto-join">Join via Invite Code</button>
+            <button class="btn-mp" id="btn-create-match">Create Match</button>
+            <button class="btn-mp" id="btn-goto-join">Join Match</button>
             <button class="btn-mp" id="btn-goto-browser">Server Browser</button>
             <div style="height: 1px; background: rgba(255,255,255,0.2); margin: 20px 0;"></div>
             <button class="btn-mp danger" id="btn-play-solo">Offline Training (AI)</button>
         </div>
 
         <div id="panel-lobby" class="mp-panel">
-            <h2>Operations Lobby</h2>
-            <p>Invite Code: <span id="lobby-code-display" class="highlight" style="font-size:1.5rem; letter-spacing:5px;">----</span></p>
+            <h2>Match Lobby</h2>
+            <p>Match Code: <span id="lobby-code-display" class="highlight" style="font-size:1.5rem; letter-spacing:5px;">----</span></p>
             <div class="lobby-players">
-                <div class="player-slot" id="slot-p1"><span>[HOST] Waiting...</span> <span class="status"></span></div>
+                <div class="player-slot" id="slot-p1"><span>[PLAYER 1] Waiting...</span> <span class="status"></span></div>
                 <div class="player-slot" id="slot-p2"><span>[P2] Waiting for connection...</span> <span class="status"></span></div>
             </div>
             <button class="btn-mp" id="btn-toggle-ready">Toggle Ready</button>
@@ -256,8 +256,8 @@
         </div>
 
         <div id="panel-join" class="mp-panel">
-            <h2>Join Network Match</h2>
-            <p>Enter Host Invite Code</p>
+            <h2>Join Match</h2>
+            <p>Enter the four-character match code</p>
             <div class="input-group">
                 <input type="text" id="input-join-code" maxlength="4" placeholder="XXXX">
             </div>
@@ -474,6 +474,10 @@
             if (nextLobby.seed) worldSeed = nextLobby.seed;
             updateLobbyUI();
 
+            if (nextLobby.status === 'waiting' && gameActive) {
+                returnToLobby("Opponent disconnected — waiting for a new player");
+            }
+
             if (nextLobby.status === 'playing' && !gameActive) {
                 isMultiplayer = true;
                 startGameSequence();
@@ -493,7 +497,8 @@
 
         function applyRemoteSnapshot(states) {
             if (!states || !singleEnemy) return;
-            const enemyKey = isHost ? 'p2' : 'p1';
+            const me = lobbyData && currentUser ? lobbyData.players[currentUser.uid] : null;
+            const enemyKey = me && me.slot === 'p1' ? 'p2' : 'p1';
             const enemyState = states[enemyKey];
             if (!enemyState) return;
 
@@ -522,6 +527,25 @@
             } else {
                 spawnNextCubePair();
             }
+        }
+
+        function returnToLobby(message) {
+            gameActive = false;
+            if (networkUpdateInterval) {
+                clearInterval(networkUpdateInterval);
+                networkUpdateInterval = null;
+            }
+            document.getElementById('game-over-screen').style.display = 'none';
+            document.getElementById('hud-container').style.display = 'none';
+            document.getElementById('crosshair').style.display = 'none';
+            document.getElementById('hud-toggle').style.display = 'none';
+            document.getElementById('mobile-controls').style.display = 'none';
+            document.getElementById('cube-tracker').style.display = 'none';
+            document.getElementById('stealth-indicator').style.display = 'none';
+            document.getElementById('freeze-overlay').style.display = 'none';
+            document.getElementById('mp-menu-container').style.display = 'flex';
+            showPanel('panel-lobby');
+            setNetworkStatus(message, '#ffaa00');
         }
         
         let cubesCollected = 0; 
@@ -605,7 +629,7 @@
             startGameSequence();
         });
 
-        document.getElementById('btn-goto-host').addEventListener('click', () => {
+        document.getElementById('btn-create-match').addEventListener('click', () => {
             if (!socketConnected || !currentUser) {
                 setNetworkStatus("MATCH SERVER REQUIRED FOR MULTIPLAYER", "#ff3333");
                 return;
@@ -672,7 +696,7 @@
             const slot2 = document.getElementById('slot-p2');
             
             if (p1) {
-                slot1.innerHTML = `<span>${p1.name} [${p1.role.toUpperCase()}]</span> <span class="status ${p1.ready ? 'ready' : ''}">${p1.ready ? 'READY' : 'WAITING'}</span>`;
+                slot1.innerHTML = `<span>PLAYER 1 [${p1.role.toUpperCase()}]</span> <span class="status ${p1.ready ? 'ready' : ''}">${p1.ready ? 'READY' : 'WAITING'}</span>`;
             }
             if (p2) {
                 slot2.innerHTML = `<span>${p2.name} [${p2.role.toUpperCase()}]</span> <span class="status ${p2.ready ? 'ready' : ''}">${p2.ready ? 'READY' : 'WAITING'}</span>`;
@@ -1208,7 +1232,12 @@
         }
 
         function handleDefeat(seekerWon) {
+            if (!gameActive) return;
             gameActive = false;
+            if (networkUpdateInterval) {
+                clearInterval(networkUpdateInterval);
+                networkUpdateInterval = null;
+            }
             if (singleEnemy) {
                 singleEnemy.visible = true;
                 singleEnemy.userData.robotMat.opacity = 1.0;
@@ -1239,7 +1268,12 @@
         }
 
         function handleHiderWin(amIHiderWhoWon) {
+            if (!gameActive) return;
             gameActive = false;
+            if (networkUpdateInterval) {
+                clearInterval(networkUpdateInterval);
+                networkUpdateInterval = null;
+            }
             if (!isTouchDevice) document.exitPointerLock();
             document.getElementById('mobile-controls').style.display = 'none';
             document.getElementById('hud-toggle').style.display = 'none';
@@ -1319,10 +1353,14 @@
             document.getElementById('hud-toggle').style.display = 'block';
             
             if (isMultiplayer) {
-                const myData = lobbyData.players[currentUser.uid];
+                const myData = lobbyData && lobbyData.players[currentUser.uid];
+                if (!myData || !['seeker', 'hider'].includes(myData.role)) {
+                    returnToLobby("Match roles are not ready");
+                    return;
+                }
                 amISeeker = myData.role === 'seeker';
-                const myKey = isHost ? 'p1' : 'p2';
-                const enemyKey = isHost ? 'p2' : 'p1';
+                const myKey = myData.slot;
+                const enemyKey = myData.slot === 'p1' ? 'p2' : 'p1';
                 const myState = lobbyData.state && lobbyData.state[myKey];
                 const enemyState = lobbyData.state && lobbyData.state[enemyKey];
                 if (myState) {
@@ -1412,7 +1450,8 @@
 
         function broadcastNetworkState() {
             if (!gameActive || !currentUser || !currentLobbyId) return;
-            const myKey = isHost ? 'p1' : 'p2';
+            const myData = lobbyData && lobbyData.players[currentUser.uid];
+            if (!myData) return;
 
             sendNetwork({
                 type: 'state',
