@@ -1,0 +1,2180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Maze Horde - Tactical Operations</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #0b101a; font-family: 'Inter', sans-serif; user-select: none; -webkit-user-select: none; }
+        #game-container { width: 100vw; height: 100vh; display: block; position: absolute; top: 0; left: 0; z-index: 1; }
+        
+        #crosshair {
+            position: absolute; top: 50%; left: 50%;
+            width: 8px; height: 8px;
+            background-color: white; border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none; mix-blend-mode: difference; z-index: 10; display: none;
+        }
+        
+        h1 { font-size: 3rem; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 4px; color: #00e5ff; text-shadow: 0 0 10px rgba(0,229,255,0.4); text-align: center; }
+        h2 { font-size: 1.8rem; color: #fff; text-transform: uppercase; letter-spacing: 3px; margin: 10px 0; }
+        p { font-size: 1rem; margin: 8px 0; color: #ccc; text-align: center; }
+        .highlight { color: #00e5ff; font-weight: bold; }
+        
+        /* MULTIPLAYER MENU UI */
+        #mp-menu-container {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 5, 10, 0.9); z-index: 200;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            backdrop-filter: blur(10px); transition: opacity 0.5s ease;
+        }
+        .mp-panel {
+            background: rgba(0, 229, 255, 0.05); border: 2px solid rgba(0, 229, 255, 0.3);
+            border-radius: 12px; padding: 30px; width: 90%; max-width: 600px;
+            box-shadow: 0 0 30px rgba(0, 229, 255, 0.1); display: none; flex-direction: column;
+            animation: panelFadeIn 0.3s ease-out;
+        }
+        .mp-panel.active { display: flex; }
+        @keyframes panelFadeIn { from { opacity: 0; transform: translateY(20px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        
+        .btn-mp {
+            background: rgba(0, 229, 255, 0.1); border: 1px solid #00e5ff; color: #00e5ff;
+            padding: 15px 25px; margin: 10px 0; font-size: 1.2rem; font-weight: bold; text-transform: uppercase;
+            letter-spacing: 2px; border-radius: 6px; cursor: pointer; transition: all 0.2s;
+            text-align: center; display: block; width: 100%; box-sizing: border-box;
+        }
+        .btn-mp:hover { background: rgba(0, 229, 255, 0.3); box-shadow: 0 0 15px rgba(0,229,255,0.4); transform: scale(1.02); }
+        .btn-mp:active { transform: scale(0.98); }
+        .btn-mp.danger { border-color: #ff3333; color: #ff3333; background: rgba(255, 51, 51, 0.1); }
+        .btn-mp.danger:hover { background: rgba(255, 51, 51, 0.3); box-shadow: 0 0 15px rgba(255,51,51,0.4); }
+        .btn-mp:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; background: rgba(100,100,100,0.1); border-color: #555; color: #888; }
+
+        .input-group { display: flex; gap: 10px; margin: 15px 0; }
+        input[type="text"] {
+            flex: 1; background: rgba(0,0,0,0.5); border: 1px solid rgba(0,229,255,0.5);
+            color: #fff; padding: 15px; font-size: 1.5rem; text-align: center; border-radius: 6px;
+            text-transform: uppercase; letter-spacing: 4px; font-family: monospace; outline: none;
+        }
+        input[type="text"]:focus { border-color: #00e5ff; box-shadow: 0 0 10px rgba(0,229,255,0.3); }
+
+        .server-list { max-height: 250px; overflow-y: auto; margin: 15px 0; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 5px; }
+        .server-item {
+            display: flex; justify-content: space-between; align-items: center; padding: 15px;
+            border-bottom: 1px solid rgba(255,255,255,0.05); transition: background 0.2s;
+        }
+        .server-item:hover { background: rgba(0, 229, 255, 0.1); }
+        .server-info { color: #fff; font-size: 1.1rem; }
+        .server-status { color: #00ff88; font-size: 0.9rem; margin-top: 5px; }
+        .btn-join-small { background: #00e5ff; color: #000; border: none; padding: 8px 15px; font-weight: bold; border-radius: 4px; cursor: pointer; pointer-events: auto; }
+
+        .lobby-players { background: rgba(0,0,0,0.3); border-radius: 6px; padding: 15px; margin: 15px 0; }
+        .player-slot { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px dashed rgba(255,255,255,0.1); color: #ccc; }
+        .player-slot.ready { color: #00ff88; }
+        .player-slot:last-child { border-bottom: none; }
+        
+        /* Role Selection UI */
+        .role-selector { width: 100%; box-sizing: border-box; }
+        .role-btn { flex: 1; position: relative; margin: 0; }
+        .role-btn input { display: none; }
+        .role-btn span { display: block; text-align: center; padding: 12px 5px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; cursor: pointer; color: #fff; font-family: monospace; font-weight: bold; transition: all 0.2s; }
+        .role-btn input:checked + span { background: rgba(0, 229, 255, 0.3); border-color: #00e5ff; color: #00e5ff; box-shadow: 0 0 10px rgba(0,229,255,0.2); }
+        .role-btn.seeker-btn input:checked + span { background: rgba(255, 51, 51, 0.3); border-color: #ff3333; color: #ff3333; box-shadow: 0 0 10px rgba(255,51,51,0.2); }
+        .role-btn.hider-btn input:checked + span { background: rgba(0, 255, 136, 0.3); border-color: #00ff88; color: #00ff88; box-shadow: 0 0 10px rgba(0,255,136,0.2); }
+        
+        .loading-text { font-family: monospace; color: #00e5ff; animation: blink 1s infinite; text-align: center; margin: 10px 0; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+        #conn-status { position: absolute; top: 20px; right: 20px; font-family: monospace; color: #888; z-index: 150; font-size: 0.9rem; text-align: right; pointer-events: none; }
+        
+        /* CUBE COLLECTION TRACKER BAR */
+        #cube-tracker {
+            position: absolute; top: 15px; left: 50%; transform: translateX(-50%);
+            display: none; align-items: center; gap: 8px; z-index: 100;
+            background: rgba(0, 5, 10, 0.7); padding: 8px 16px; border-radius: 20px;
+            border: 1px solid rgba(0, 229, 255, 0.3); backdrop-filter: blur(5px);
+            box-shadow: 0 0 15px rgba(0, 229, 255, 0.1); pointer-events: none;
+        }
+        .tracker-text {
+            color: #00e5ff; font-family: monospace; font-weight: bold; margin-right: 10px; font-size: 0.8rem; letter-spacing: 1px;
+        }
+        .cube-slot {
+            width: 12px; height: 12px; border-radius: 3px;
+            background: rgba(0, 255, 204, 0.1); border: 1px solid rgba(0, 255, 204, 0.4);
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            transform: rotate(45deg);
+        }
+        .cube-slot.filled {
+            background: #00ffcc; box-shadow: 0 0 12px #00ffcc; border-color: #fff;
+            transform: rotate(45deg) scale(1.15);
+        }
+
+        /* COMPACT HUD */
+        #hud-container {
+            position: absolute; bottom: 12px; left: 12px; color: #00e5ff; font-family: monospace; z-index: 5;
+            pointer-events: none; background: rgba(0, 5, 10, 0.75); padding: 8px 12px; border-radius: 6px;
+            border: 1px solid rgba(0, 229, 255, 0.2); backdrop-filter: blur(6px); min-width: 150px; display: none;
+            box-shadow: 0 0 10px rgba(0, 229, 255, 0.1);
+        }
+        .hud-line { margin: 2px 0; font-size: 0.72rem; text-shadow: 0 0 3px rgba(0,229,255,0.4); }
+        
+        #freeze-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: none;
+            flex-direction: column; align-items: center; justify-content: center; z-index: 8;
+            background: rgba(0, 229, 255, 0.05); border: 4px solid rgba(0, 229, 255, 0.3); box-sizing: border-box;
+        }
+        #freeze-timer { font-size: 6rem; font-weight: 900; color: #00e5ff; text-shadow: 0 0 30px rgba(0, 229, 255, 0.8); margin: 0; }
+        #freeze-label { font-size: 1.2rem; color: #fff; text-transform: uppercase; letter-spacing: 5px; margin-top: 10px; text-shadow: 0 0 10px rgba(255,255,255,0.5); }
+
+        #game-over-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); color: white;
+            display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 250;
+        }
+        #game-over-title { font-size: 4rem; font-weight: 900; letter-spacing: 6px; margin-bottom: 10px; }
+        #game-over-sub { font-size: 1.2rem; color: #ccc; margin-bottom: 30px; text-align: center; max-width: 80%; }
+
+        /* Decoy Alert HUD element */
+        #decoy-alert {
+            position: absolute; top: 150px; left: 50%; transform: translateX(-50%);
+            background: rgba(255, 51, 51, 0.85); border: 2px solid #ff3333; color: white;
+            padding: 8px 18px; border-radius: 6px; font-family: monospace; font-weight: bold;
+            font-size: 1rem; letter-spacing: 1px; text-shadow: 0 0 5px rgba(0,0,0,0.5);
+            box-shadow: 0 0 20px rgba(255,51,51,0.6); display: none; z-index: 90;
+            pointer-events: none; animation: pulse 0.5s infinite alternate;
+        }
+        @keyframes pulse { from { opacity: 0.7; } to { opacity: 1; } }
+
+        /* Stealth Indicator Eye */
+        #stealth-indicator {
+            display: none; position: absolute; top: 65px; left: 50%; 
+            transform: translateX(-50%) scale(0.55); transform-origin: top center; z-index: 100;
+        }
+        @keyframes pupil-scan { 0%, 100% { transform: translateX(-18px); } 50% { transform: translateX(18px); } }
+        @keyframes danger-pulse { 0%, 100% { opacity: 0.6; transform: scale(0.98); filter: drop-shadow(0 0 4px rgba(255,51,51,0.5)); } 50% { opacity: 1; transform: scale(1.05); filter: drop-shadow(0 0 12px rgba(255,51,51,1)); } }
+        
+        .pupil-unseen { animation: pupil-scan 2.8s infinite ease-in-out; fill: #ffffff; }
+        .pupil-seen { transform: translateX(0) !important; fill: #ff3333 !important; animation: none !important; }
+        .eye-unseen { stroke: #ffffff; }
+        .eye-seen { stroke: #ff3333 !important; }
+        .hidden-waves { opacity: 0; transform: scale(0.9); }
+        .seen-waves { opacity: 1; stroke: #ff3333; animation: danger-pulse 1s infinite ease-in-out; }
+        
+        #stealth-indicator svg { overflow: visible; }
+        #stealth-indicator path, #stealth-indicator circle, #stealth-indicator g { transform-origin: center; transition: all 0.3s ease; }
+
+        /* Mobile HUD Toggle */
+        #hud-toggle {
+            position: absolute; top: 20px; left: 20px; z-index: 100;
+            background: rgba(0, 229, 255, 0.15); border: 1px solid rgba(0, 229, 255, 0.5);
+            color: #00ff88; font-family: monospace; font-size: 0.85rem; padding: 6px 10px;
+            border-radius: 6px; cursor: pointer; text-shadow: 0 0 5px rgba(0,255,136,0.5);
+            transition: all 0.3s ease; box-shadow: 0 0 10px rgba(0,229,255,0.1); user-select: none;
+            backdrop-filter: blur(4px); display: none; pointer-events: auto;
+        }
+        #hud-toggle:active { transform: scale(0.9); }
+        
+        /* MOBILE CONTROLS */
+        #mobile-controls {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 95;
+            pointer-events: none; 
+            display: none; 
+            opacity: 1; transform: translateY(0) scale(1);
+            transition: opacity 0.4s ease, transform 0.4s ease;
+        }
+        #mobile-controls.hidden-ui { 
+            opacity: 0; transform: translateY(30px) scale(0.9); pointer-events: none; visibility: hidden; 
+        }
+
+        #joystick-base {
+            position: absolute; bottom: 30px; left: 30px; width: 110px; height: 110px;
+            border-radius: 50%; background: rgba(0, 229, 255, 0.05); border: 2px solid rgba(0, 229, 255, 0.3);
+            touch-action: none; display: flex; justify-content: center; align-items: center;
+            box-shadow: 0 0 20px rgba(0, 229, 255, 0.1);
+            pointer-events: auto;
+        }
+        #joystick-knob {
+            width: 45px; height: 45px; border-radius: 50%; background: rgba(0, 229, 255, 0.4);
+            box-shadow: 0 0 15px rgba(0,229,255,0.8); position: absolute; pointer-events: none;
+            transition: transform 0.05s ease-out;
+        }
+        
+        #action-button {
+            position: absolute; bottom: 40px; right: 40px; width: 75px; height: 75px;
+            border-radius: 50%; background: rgba(255, 51, 51, 0.2); border: 2px solid rgba(255, 51, 51, 0.5);
+            display: flex; justify-content: center; align-items: center; color: #fff;
+            font-weight: 900; font-size: 1.1rem; letter-spacing: 1px; text-shadow: 0 0 5px rgba(255,51,51,0.8);
+            touch-action: none; transition: all 0.1s; user-select: none; box-shadow: 0 0 20px rgba(255, 51, 51, 0.2);
+            pointer-events: auto;
+        }
+        #action-button:active { background: rgba(255, 51, 51, 0.5); transform: scale(0.9); }
+
+        @media (max-width: 768px) {
+            h1 { font-size: 1.8rem; }
+            #hud-container { font-size: 0.65rem; min-width: 120px; bottom: 8px; left: 8px; padding: 4px 8px; }
+            .hud-line { margin: 1px 0; font-size: 0.65rem; }
+            #freeze-timer { font-size: 4rem; }
+            #freeze-label { font-size: 0.9rem; }
+            #stealth-indicator { transform: translateX(-50%) scale(0.4); top: 55px; } 
+            .mp-panel { padding: 15px; width: 95%; }
+            .btn-mp { padding: 10px 12px; font-size: 0.9rem; }
+            #cube-tracker { top: 12px; padding: 4px 10px; }
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+    <div id="mp-menu-container">
+        <h1>MAZE HORDE</h1>
+        <p style="margin-bottom:30px;">Tactical Network Operations</p>
+        
+        <div id="panel-main" class="mp-panel active">
+            <div class="role-selector">
+                <div style="color: #fff; margin-bottom: 8px; text-transform: uppercase; font-size: 0.9rem; letter-spacing: 1px; text-align: center;">Select Protocol Role:</div>
+                <div style="display: flex; gap: 10px; margin-bottom: 20px; justify-content: center;">
+                    <label class="role-btn"><input type="radio" name="preferred-role" value="random" checked><span>RANDOM</span></label>
+                    <label class="role-btn seeker-btn"><input type="radio" name="preferred-role" value="seeker"><span>SEEKER</span></label>
+                    <label class="role-btn hider-btn"><input type="radio" name="preferred-role" value="hider"><span>HIDER</span></label>
+                </div>
+            </div>
+            <button class="btn-mp" id="btn-goto-host">Host LAN Match</button>
+            <button class="btn-mp" id="btn-goto-join">Join via Invite Code</button>
+            <button class="btn-mp" id="btn-goto-browser">Server Browser</button>
+            <div style="height: 1px; background: rgba(255,255,255,0.2); margin: 20px 0;"></div>
+            <button class="btn-mp danger" id="btn-play-solo">Offline Training (AI)</button>
+        </div>
+
+        <div id="panel-lobby" class="mp-panel">
+            <h2>Operations Lobby</h2>
+            <p>Invite Code: <span id="lobby-code-display" class="highlight" style="font-size:1.5rem; letter-spacing:5px;">----</span></p>
+            <div class="lobby-players">
+                <div class="player-slot" id="slot-p1"><span>[HOST] Waiting...</span> <span class="status"></span></div>
+                <div class="player-slot" id="slot-p2"><span>[P2] Waiting for connection...</span> <span class="status"></span></div>
+            </div>
+            <button class="btn-mp" id="btn-toggle-ready">Toggle Ready</button>
+            <button class="btn-mp" id="btn-start-match" disabled style="background:#00e5ff; color:#000;">Initialize Match</button>
+            <button class="btn-mp danger" id="btn-leave-lobby">Leave Lobby</button>
+        </div>
+
+        <div id="panel-join" class="mp-panel">
+            <h2>Join Network Match</h2>
+            <p>Enter Host Invite Code</p>
+            <div class="input-group">
+                <input type="text" id="input-join-code" maxlength="4" placeholder="XXXX">
+            </div>
+            <button class="btn-mp" id="btn-submit-join">Connect</button>
+            <button class="btn-mp danger" id="btn-cancel-join">Back</button>
+            <p id="join-error" style="color: #ff3333; display: none;"></p>
+        </div>
+
+        <div id="panel-browser" class="mp-panel">
+            <h2>Local Networks</h2>
+            <div class="server-list" id="browser-list">
+                <div class="loading-text">Scanning Frequencies...</div>
+            </div>
+            <button class="btn-mp" id="btn-refresh-browser">Refresh</button>
+            <button class="btn-mp danger" id="btn-cancel-browser">Back</button>
+        </div>
+    </div>
+
+    <div id="conn-status">SYSTEM: OFFLINE</div>
+
+    <div id="freeze-overlay">
+        <p id="freeze-label">SYSTEM INITIALIZING</p>
+        <p id="freeze-timer">8</p>
+    </div>
+
+    <div id="decoy-alert">DECOY DETECTED - CO-ORDINATES MISMAPPED</div>
+
+    <div id="cube-tracker">
+        <div class="tracker-text">DATA CUBES</div>
+        <div class="cube-slot" id="cube-slot-1"></div>
+        <div class="cube-slot" id="cube-slot-2"></div>
+        <div class="cube-slot" id="cube-slot-3"></div>
+        <div class="cube-slot" id="cube-slot-4"></div>
+        <div class="cube-slot" id="cube-slot-5"></div>
+    </div>
+
+    <div id="stealth-indicator">
+        <svg width="200" height="60" viewBox="0 0 200 60">
+            <g class="stealth-waves hidden-waves" stroke-width="4" stroke-linecap="round" fill="none">
+                <path d="M 45 20 A 10 10 0 0 0 45 40" /><path d="M 35 13 A 18 18 0 0 0 35 47" /><path d="M 25 5 A 25 25 0 0 0 25 55" />
+            </g>
+            <path id="stealth-eye-path" d="M 60 30 Q 100 5 140 30 Q 100 55 60 30" stroke-width="4" fill="rgba(0,0,0,0.5)" class="eye-unseen"/>
+            <circle id="stealth-pupil" cx="100" cy="30" r="9" class="pupil-unseen" />
+            <g class="stealth-waves hidden-waves" stroke-width="4" stroke-linecap="round" fill="none">
+                <path d="M 155 20 A 10 10 0 0 1 155 40" /><path d="M 165 13 A 18 18 0 0 1 165 47" /><path d="M 175 5 A 25 25 0 0 1 175 55" />
+            </g>
+        </svg>
+    </div>
+
+    <div id="game-over-screen">
+        <h1 id="game-over-title">DEFEAT</h1>
+        <p id="game-over-sub">Match Terminated.</p>
+        <button class="btn-restart" style="padding: 15px 30px; font-size: 1.2rem; background: #00e5ff; color: #000; border: none; cursor: pointer; border-radius: 5px; font-weight: bold;" onclick="window.resetToMainMenu()">Return to Main Menu</button>
+    </div>
+
+    <div id="hud-toggle">TOUCH UI: ON</div>
+    
+    <!-- Beautiful styled Pixel Mode toggle placed in the top right, relative to coordinates -->
+    <button id="btn-toggle-pixel" style="position: absolute; top: 20px; left: 160px; z-index: 100; background: rgba(0, 229, 255, 0.15); border: 1px solid rgba(0, 229, 255, 0.5); color: #00e5ff; font-family: monospace; font-size: 0.85rem; padding: 6px 12px; border-radius: 6px; cursor: pointer; text-shadow: 0 0 5px rgba(0,229,255,0.5); transition: all 0.3s ease; box-shadow: 0 0 10px rgba(0,229,255,0.1); user-select: none; backdrop-filter: blur(4px); pointer-events: auto;">PIXEL MODE: OFF</button>
+    
+    <div id="mobile-controls" class="hidden-ui">
+        <div id="joystick-base"><div id="joystick-knob"></div></div>
+        <div id="action-button">SCAN</div>
+    </div>
+
+    <div id="crosshair"></div>
+    <div id="hud-container">
+        <div class="hud-line">ROLE: <span id="hud-role" style="color:#00ff88; font-weight:bold;">CALCULATING...</span></div>
+        <div class="hud-line">OBJ: <span id="hud-objective-text" style="color:#ffffff; font-weight:bold;">REMAIN UNDETECTED</span></div>
+        <div class="hud-line">PING: <span id="hud-ping" style="color:#fff;">-- ms</span></div>
+        <div class="hud-line">ODRADEK: <span id="scan-status" style="color:#00ff88;">READY [MMB]</span></div>
+        <div class="hud-line">REVEAL: <span id="hud-reveal-time" style="color:#888;">OFFLINE</span></div>
+    </div>
+
+    <div id="game-container"></div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, updateDoc, deleteDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const MAP_SIZE = 1000; 
+        const MAZE_TILES = 200; 
+        const TILE_SIZE = 5;
+
+        const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'maze-horde-local';
+        const FB_CONFIG = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        
+        let pixelatedModeActive = false;
+        const pixelSize = 4; // Factor to downsample the game resolution for retro aesthetic
+        
+        let app, auth, db, currentUser;
+        let isMultiplayer = false;
+        let isHost = false;
+        let currentLobbyId = null;
+        let unsubscribeLobby = null;
+        let lobbyData = null;
+        
+        let networkUpdateInterval = null;
+        let networkTarget = { x: 0, z: 0, r: 0, scanTrigger: 0, captured: false, cubesCollected: 0 };
+        let lastScanTrigger = 0;
+        let pingAccumulator = 0;
+        let pingCount = 0;
+        let lastPacketTime = 0;
+        
+        let cubesCollected = 0; 
+        const maxCubesToWin = 5; 
+        
+        let cullTimer = 0;
+        let lastPlayerGridX = -999;
+        let lastPlayerGridZ = -999;
+
+        // --- AUDIO VARIABLES ---
+        let audioCtx;
+        let heartFilter;
+        let nextHeartbeatTime = 0;
+        let heartRate = 1.5;
+
+        function updateCubeUI(count) {
+            cubesCollected = Number(count);
+            document.getElementById('hud-objective-text').innerText = `COLLECT CUBES [${cubesCollected}/${maxCubesToWin}]`;
+            for (let i = 1; i <= 5; i++) {
+                let slot = document.getElementById('cube-slot-' + i);
+                if (slot) {
+                    if (i <= cubesCollected) slot.classList.add('filled');
+                    else slot.classList.remove('filled');
+                }
+            }
+        }
+
+        function showPanel(id) {
+            document.querySelectorAll('.mp-panel').forEach(p => p.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+        }
+
+        const connStatus = document.getElementById('conn-status');
+        
+        async function initFirebase() {
+            if (!FB_CONFIG) {
+                connStatus.innerText = "NO NETWORK DETECTED (Offline Mode Only)";
+                return;
+            }
+            try {
+                app = initializeApp(FB_CONFIG);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                
+                connStatus.innerText = "AUTHENTICATING...";
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                onAuthStateChanged(auth, (user) => {
+                    currentUser = user;
+                    if (user) {
+                        connStatus.innerText = "SYSTEM ONLINE - CONNECTED";
+                        connStatus.style.color = "#00ff88";
+                    } else {
+                        connStatus.innerText = "DISCONNECTED";
+                        connStatus.style.color = "#ff3333";
+                    }
+                });
+            } catch (e) {
+                connStatus.innerText = "NETWORK ERROR";
+                connStatus.style.color = "#ff3333";
+            }
+        }
+
+        initFirebase();
+
+        const COLLECTION_NAME = 'lobbies';
+        const generateCode = () => Math.random().toString(36).substring(2, 6).toUpperCase();
+        const getLobbyRef = (id) => doc(db, 'artifacts', APP_ID, 'public', 'data', COLLECTION_NAME, id);
+        const getLobbiesCol = () => collection(db, 'artifacts', APP_ID, 'public', 'data', COLLECTION_NAME);
+
+        window.resetToMainMenu = function() {
+            gameActive = false;
+            isMultiplayer = false;
+            currentLobbyId = null;
+            if (unsubscribeLobby) { unsubscribeLobby(); unsubscribeLobby = null; }
+            if (document.pointerLockElement === document.body) { document.exitPointerLock(); }
+            
+            document.getElementById('game-over-screen').style.display = 'none';
+            document.getElementById('hud-container').style.display = 'none';
+            document.getElementById('crosshair').style.display = 'none';
+            document.getElementById('hud-toggle').style.display = 'none';
+            document.getElementById('mobile-controls').style.display = 'none';
+            document.getElementById('cube-tracker').style.display = 'none';
+            document.getElementById('stealth-indicator').style.display = 'none';
+            document.getElementById('freeze-overlay').style.display = 'none';
+            
+            document.getElementById('mp-menu-container').style.display = 'flex';
+            showPanel('panel-main');
+            
+            camera.position.set(0, DEFAULT_CAMERA_Y, 0);
+            yaw = 0; pitch = 0; currentRoll = 0;
+            camera.quaternion.setFromEuler(new THREE.Euler(0, 0, 0, 'YXZ'));
+            
+            if (singleEnemy) {
+                singleEnemy.position.set(0, 0, -15);
+                singleEnemy.visible = false;
+            }
+            if (seekerHologram) seekerHologram.visible = false;
+            if (realCube) { realCube.position.set(0, -999, 0); }
+            if (fakeCube) { fakeCube.position.set(0, -999, 0); }
+            if (realBeam) { realBeam.position.set(0, -999, 0); }
+            if (fakeBeam) { fakeBeam.position.set(0, -999, 0); }
+            cubesCollected = 0;
+            
+            const btnStart = document.getElementById('btn-start-match');
+            if (btnStart) btnStart.disabled = true;
+        };
+
+        document.getElementById('btn-play-solo').addEventListener('click', () => {
+            isMultiplayer = false;
+            startGameSequence();
+        });
+
+        document.getElementById('btn-goto-host').addEventListener('click', async () => {
+            if (!currentUser) return;
+            const code = generateCode();
+            currentLobbyId = code;
+            isHost = true;
+            
+            const prefRole = document.querySelector('input[name="preferred-role"]:checked').value;
+            let hostRole = 'seeker';
+            if (prefRole === 'random') {
+                hostRole = Math.random() > 0.5 ? 'seeker' : 'hider';
+            } else {
+                hostRole = prefRole;
+            }
+
+            const initialData = {
+                status: 'waiting',
+                hostId: currentUser.uid,
+                createdAt: Date.now(),
+                players: {
+                    [currentUser.uid]: { name: "HOST (P1)", ready: false, role: hostRole }
+                },
+                state: { 
+                    p1: { x: 0, z: -15, r: 0, scanTrigger: 0, captured: false, cubesCollected: 0 }, 
+                    p2: { x: 0, z: 15, r: 0, scanTrigger: 0, captured: false, cubesCollected: 0 } 
+                }
+            };
+            
+            await setDoc(getLobbyRef(code), initialData);
+            document.getElementById('lobby-code-display').innerText = code;
+            showPanel('panel-lobby');
+            listenToLobby(code);
+        });
+
+        document.getElementById('btn-goto-join').addEventListener('click', () => showPanel('panel-join'));
+        document.getElementById('btn-cancel-join').addEventListener('click', () => showPanel('panel-main'));
+        
+        document.getElementById('btn-submit-join').addEventListener('click', async () => {
+            const code = document.getElementById('input-join-code').value.toUpperCase();
+            const errEl = document.getElementById('join-error');
+            if(code.length !== 4) { errEl.innerText = "Invalid code format"; errEl.style.display = 'block'; return; }
+            
+            joinLobby(code, errEl);
+        });
+
+        document.getElementById('btn-goto-browser').addEventListener('click', () => {
+            showPanel('panel-browser');
+            refreshBrowser();
+        });
+        document.getElementById('btn-cancel-browser').addEventListener('click', () => showPanel('panel-main'));
+        document.getElementById('btn-refresh-browser').addEventListener('click', refreshBrowser);
+
+        async function joinLobby(code, errEl) {
+            if (!currentUser) return;
+            const ref = getLobbyRef(code);
+            const snap = await getDoc(ref);
+            
+            if (!snap.exists()) {
+                if(errEl) { errEl.innerText = "Lobby not found"; errEl.style.display = 'block'; }
+                return;
+            }
+            
+            const data = snap.data();
+            if (data.status !== 'waiting') {
+                if(errEl) { errEl.innerText = "Match already in progress"; errEl.style.display = 'block'; }
+                return;
+            }
+            
+            if (Object.keys(data.players).length >= 2 && !data.players[currentUser.uid]) {
+                if(errEl) { errEl.innerText = "Lobby is full"; errEl.style.display = 'block'; }
+                return;
+            }
+
+            const hostId = data.hostId;
+            const hostRole = data.players[hostId].role;
+            const myRole = hostRole === 'seeker' ? 'hider' : 'seeker';
+
+            const newPlayers = { ...data.players };
+            newPlayers[currentUser.uid] = { name: "PLAYER 2", ready: false, role: myRole };
+            
+            await updateDoc(ref, { players: newPlayers });
+            
+            currentLobbyId = code;
+            isHost = false;
+            document.getElementById('lobby-code-display').innerText = code;
+            if(errEl) errEl.style.display = 'none';
+            showPanel('panel-lobby');
+            listenToLobby(code);
+        }
+
+        async function refreshBrowser() {
+            if (!currentUser) return;
+            const listEl = document.getElementById('browser-list');
+            listEl.innerHTML = '<div class="loading-text">Scanning Frequencies...</div>';
+            
+            const snaps = await getDocs(getLobbiesCol());
+            let html = '';
+            const now = Date.now();
+            
+            snaps.forEach(doc => {
+                const data = doc.data();
+                if (data.status === 'waiting' && data.players && (now - data.createdAt < 3600000)) { 
+                    const pCount = Object.keys(data.players).length;
+                    if (pCount < 2) {
+                        html += `
+                        <div class="server-item">
+                            <div class="server-info">Host Lobby [${doc.id}] <div class="server-status">${pCount}/2 Players waiting</div></div>
+                            <button class="btn-join-small" onclick="window.triggerJoin('${doc.id}')">JOIN</button>
+                        </div>`;
+                    }
+                }
+            });
+            
+            listEl.innerHTML = html === '' ? '<div style="color:#888; text-align:center; padding:20px;">No open networks found.</div>' : html;
+        }
+
+        window.triggerJoin = (code) => { joinLobby(code, null); };
+
+        function listenToLobby(code) {
+            if (unsubscribeLobby) unsubscribeLobby();
+            
+            unsubscribeLobby = onSnapshot(getLobbyRef(code), (doc) => {
+                if (!doc.exists()) {
+                    connStatus.innerText = "LOBBY CLOSED BY HOST";
+                    connStatus.style.color = "#ff3333";
+                    setTimeout(() => { if (currentUser) { connStatus.innerText = "SYSTEM ONLINE - CONNECTED"; connStatus.style.color = "#00ff88"; } }, 3000);
+                    resetToMainMenu();
+                    return;
+                }
+                lobbyData = doc.data();
+                updateLobbyUI();
+                
+                if (lobbyData.status === 'playing' && !gameActive) {
+                    isMultiplayer = true;
+                    startGameSequence();
+                }
+
+                if (lobbyData.status === 'playing' && gameActive) {
+                    const now = performance.now();
+                    if (lastPacketTime > 0) {
+                        pingAccumulator += (now - lastPacketTime);
+                        pingCount++;
+                        if (pingCount >= 10) {
+                            document.getElementById('hud-ping').innerText = `${Math.floor(pingAccumulator/10)} ms`;
+                            pingAccumulator = 0; pingCount = 0;
+                        }
+                    }
+                    lastPacketTime = now;
+
+                    const enemyKey = isHost ? 'p2' : 'p1';
+                    const eData = lobbyData.state[enemyKey];
+                    if (eData) {
+                        networkTarget.x = eData.x;
+                        networkTarget.z = eData.z;
+                        networkTarget.r = eData.r;
+                        
+                        if (amISeeker) {
+                            if (eData.cubesCollected !== undefined && eData.cubesCollected !== cubesCollected) {
+                                updateCubeUI(eData.cubesCollected);
+                            }
+                        }
+
+                        if (eData.captured && !amISeeker) {
+                            handleDefeat(false);
+                        } else if (eData.captured && amISeeker) {
+                            handleDefeat(true); 
+                        }
+                        
+                        if (eData.scanTrigger > lastScanTrigger) {
+                            lastScanTrigger = eData.scanTrigger;
+                            triggerEnemyScanVisual();
+                        }
+
+                        if (!amISeeker && cubesCollected >= maxCubesToWin) {
+                            handleHiderWin(true);
+                        } else if (amISeeker && cubesCollected >= maxCubesToWin) {
+                            handleHiderWin(false);
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateLobbyUI() {
+            if (!lobbyData) return;
+            const pKeys = Object.keys(lobbyData.players);
+            const p1 = lobbyData.players[pKeys[0]];
+            const p2 = pKeys.length > 1 ? lobbyData.players[pKeys[1]] : null;
+            
+            const slot1 = document.getElementById('slot-p1');
+            const slot2 = document.getElementById('slot-p2');
+            
+            if (p1) {
+                slot1.innerHTML = `<span>${p1.name} [${p1.role.toUpperCase()}]</span> <span class="status ${p1.ready ? 'ready' : ''}">${p1.ready ? 'READY' : 'WAITING'}</span>`;
+            }
+            if (p2) {
+                slot2.innerHTML = `<span>${p2.name} [${p2.role.toUpperCase()}]</span> <span class="status ${p2.ready ? 'ready' : ''}">${p2.ready ? 'READY' : 'WAITING'}</span>`;
+            } else {
+                slot2.innerHTML = `<span>[P2] Waiting for connection...</span> <span class="status"></span>`;
+            }
+
+            const me = lobbyData.players[currentUser.uid];
+            const btnReady = document.getElementById('btn-toggle-ready');
+            if (me) {
+                btnReady.innerText = me.ready ? "UNREADY" : "READY UP";
+                btnReady.style.borderColor = me.ready ? "#ff3333" : "#00ff88";
+                btnReady.style.color = me.ready ? "#ff3333" : "#00ff88";
+            }
+
+            const btnStart = document.getElementById('btn-start-match');
+            if (isHost) {
+                btnStart.style.display = 'block';
+                const allReady = pKeys.length === 2 && p1.ready && p2.ready;
+                btnStart.disabled = !allReady;
+            } else {
+                btnStart.style.display = 'none';
+            }
+        }
+
+        document.getElementById('btn-toggle-ready').addEventListener('click', async () => {
+            if (!lobbyData || !currentUser) return;
+            const newPlayers = { ...lobbyData.players };
+            newPlayers[currentUser.uid].ready = !newPlayers[currentUser.uid].ready;
+            await updateDoc(getLobbyRef(currentLobbyId), { players: newPlayers });
+        });
+
+        document.getElementById('btn-start-match').addEventListener('click', async () => {
+            if (!isHost || !lobbyData) return;
+            await updateDoc(getLobbyRef(currentLobbyId), { status: 'playing' });
+        });
+
+        document.getElementById('btn-leave-lobby').addEventListener('click', async () => {
+            if (isHost && currentLobbyId) {
+                await deleteDoc(getLobbyRef(currentLobbyId));
+            }
+            resetToMainMenu();
+        });
+
+        let scene, camera, renderer;
+        let singleEnemy; 
+        let seekerHologram; 
+        
+        let mazeData = [];
+        let flowField = [];
+        let buildings = [];
+        let solidObstacles = [];
+        
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false, shiftPressed = false;
+        let direction = new THREE.Vector3();
+        let prevTime = performance.now();
+        
+        let isLocked = false;
+        let pitch = 0; let yaw = 0;
+
+        const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+        const joyVector = new THREE.Vector2(0, 0);
+        let touchLookId = null; let lastTouchX = 0, lastTouchY = 0;
+        let joyTouchId = null; let joyActive = false;
+
+        let amISeeker = false; 
+        let gameActive = false;
+        let freezeTimerValue = 8.0; 
+        let isPlayerFrozen = false;
+        let isEnemyFrozen = false;
+        let revealTimer = 0.0; 
+        const playerSpeedValue = 25.0; 
+        const enemySpeedValue = 25.0; 
+        
+        const scanCooldownDuration = 8.0; 
+        let scanCooldownTimer = 0.0;
+        let myScanTriggerTimestamp = 0;
+
+        let realCube, fakeCube;
+        let realBeam, fakeBeam;
+
+        const playerVelocity = new THREE.Vector3();
+        let bobTimer = 0;
+        let currentRoll = 0;
+        const DEFAULT_CAMERA_Y = 4.0;
+
+        let robotPupilMesh = null;
+        let laserLineLeft = null;
+        let laserLineRight = null;
+
+        const customUniforms = {
+            uScanOrigin: { value: new THREE.Vector3() },
+            uScanDistance: { value: 0.0 },
+            uScanActive: { value: 0.0 },
+            uAmISeeker: { value: 0.0 }
+        };
+        const scanData = { origin: new THREE.Vector3(), distance: 0, active: 0, maxDistance: 1400, speed: 110, hasRevealedEnemy: false };
+
+        const enemyUniforms = {
+            uScanOrigin: { value: new THREE.Vector3() },
+            uScanDistance: { value: 0.0 },
+            uScanActive: { value: 0.0 },
+            uEnemyAmISeeker: { value: 0.0 } 
+        };
+        const enemyScanData = { origin: new THREE.Vector3(), distance: 0, active: 0, maxDistance: 1400, speed: 110 };
+
+        function patchMaterialForScan(material) {
+            material.onBeforeCompile = (shader) => {
+                shader.uniforms.uScanOrigin = customUniforms.uScanOrigin;
+                shader.uniforms.uScanDistance = customUniforms.uScanDistance;
+                shader.uniforms.uScanActive = customUniforms.uScanActive;
+                shader.uniforms.uAmISeeker = customUniforms.uAmISeeker;
+
+                shader.uniforms.uEnemyScanOrigin = enemyUniforms.uScanOrigin;
+                shader.uniforms.uEnemyScanDistance = enemyUniforms.uScanDistance;
+                shader.uniforms.uEnemyScanActive = enemyUniforms.uScanActive;
+                shader.uniforms.uEnemyAmISeeker = enemyUniforms.uEnemyAmISeeker;
+
+                shader.vertexShader = shader.vertexShader.replace(
+                    '#include <common>',
+                    `#include <common>\n varying vec3 vWorldPos;`
+                );
+                shader.vertexShader = shader.vertexShader.replace(
+                    '#include <project_vertex>',
+                    `#include <project_vertex>\n vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;`
+                );
+
+                shader.fragmentShader = shader.fragmentShader.replace(
+                    '#include <common>',
+                    `#include <common>\n varying vec3 vWorldPos;\n uniform vec3 uScanOrigin;\n uniform float uScanDistance;\n uniform float uScanActive;\n uniform float uAmISeeker;\n uniform vec3 uEnemyScanOrigin;\n uniform float uEnemyScanDistance;\n uniform float uEnemyScanActive;\n uniform float uEnemyAmISeeker;`
+                );
+
+                shader.fragmentShader = shader.fragmentShader.replace(
+                    '#include <dithering_fragment>',
+                    `#include <dithering_fragment>
+                     
+                     float wobble = sin(vWorldPos.x * 0.7) * cos(vWorldPos.z * 0.7) * 1.5;
+                     vec3 gridPos = vWorldPos * 1.0; 
+                     vec3 gridFract = abs(fract(gridPos + 0.5) - 0.5);
+                     float lineThickness = 0.035;
+                     float gX = smoothstep(lineThickness, 0.0, gridFract.x);
+                     float gY = smoothstep(lineThickness, 0.0, gridFract.y);
+                     float gZ = smoothstep(lineThickness, 0.0, gridFract.z);
+                     float wrapGrid = max(max(gX, gY), gZ) * 0.35; 
+                     float gridDots = clamp(gX*gY + gY*gZ + gX*gZ, 0.0, 1.0) * 1.0; 
+                     float noiseVal = fract(sin(dot(floor(vWorldPos * 6.0), vec3(12.9898, 78.233, 45.164))) * 43758.5453);
+
+                     // --- PLAYER SCAN ---
+                     float scanDist = distance(vWorldPos, uScanOrigin);
+                     float ringOuter = smoothstep(uScanDistance + 2.0, uScanDistance, scanDist) * smoothstep(uScanDistance - 1.0, uScanDistance, scanDist);
+                     float ringInner = smoothstep(uScanDistance, uScanDistance - 3.0, scanDist) * smoothstep(uScanDistance - 5.0, uScanDistance, scanDist);
+                     float primaryWave = ringOuter * 2.8 + ringInner * 0.4;
+                     
+                     float topo = abs(sin((scanDist + wobble) * 0.4));
+                     float topoLines = smoothstep(0.08, 0.01, topo) * 0.3; 
+                     float digitalGlint = step(0.94, noiseVal) * primaryWave * 0.7; 
+                     float fade = 1.0 - smoothstep(0.0, 110.0, uScanDistance - scanDist);
+                     float activeScan = step(scanDist, uScanDistance);
+                     float baseBrighten = 0.1 * fade; 
+                     float scanIntensity = (primaryWave + (topoLines + wrapGrid + gridDots + digitalGlint) * fade) * uScanActive * activeScan;
+                     
+                     vec3 myColor = mix(vec3(0.0, 0.7, 1.0), vec3(1.0, 0.3, 0.0), uAmISeeker);
+                     vec3 myGlow = mix(vec3(0.1, 0.4, 0.5), vec3(0.5, 0.15, 0.0), uAmISeeker);
+                     
+                     vec3 electricScan = myColor * scanIntensity * 1.2;
+                     vec3 ambientGlow = myGlow * baseBrighten * uScanActive * activeScan;
+                     vec3 purpleDispersion = vec3(0.6, 0.0, 1.0) * ringOuter * uScanActive * activeScan * 0.8;
+                     
+                     // --- ENEMY SCAN ---
+                     float enemyScanDist = distance(vWorldPos, uEnemyScanOrigin);
+                     float eRingOuter = smoothstep(uEnemyScanDistance + 2.0, uEnemyScanDistance, enemyScanDist) * smoothstep(uEnemyScanDistance - 1.0, uEnemyScanDistance, enemyScanDist);
+                     float eRingInner = smoothstep(uEnemyScanDistance, uEnemyScanDistance - 3.0, enemyScanDist) * smoothstep(uEnemyScanDistance - 5.0, uEnemyScanDistance, enemyScanDist);
+                     float ePrimaryWave = eRingOuter * 2.8 + eRingInner * 0.4;
+                     
+                     float eTopo = abs(sin((enemyScanDist + wobble) * 0.4));
+                     float eTopoLines = smoothstep(0.08, 0.01, eTopo) * 0.3;
+                     float eDigitalGlint = step(0.94, noiseVal) * ePrimaryWave * 0.7;
+                     float eFade = 1.0 - smoothstep(0.0, 110.0, uEnemyScanDistance - enemyScanDist);
+                     float eActiveScan = step(enemyScanDist, uEnemyScanDistance);
+                     float eBaseBrighten = 0.1 * eFade;
+                     
+                     float eScanIntensity = (ePrimaryWave + (eTopoLines + wrapGrid + gridDots + eDigitalGlint) * eFade) * uEnemyScanActive * eActiveScan;
+
+                     vec3 eColor = mix(vec3(0.0, 0.7, 1.0), vec3(1.0, 0.3, 0.0), uEnemyAmISeeker);
+                     vec3 eGlow = mix(vec3(0.1, 0.4, 0.5), vec3(0.5, 0.15, 0.0), uEnemyAmISeeker);
+                     
+                     vec3 eElectricScan = eColor * eScanIntensity * 1.2;
+                     vec3 eAmbientGlow = eGlow * eBaseBrighten * uEnemyScanActive * eActiveScan;
+                     vec3 ePurpleDispersion = vec3(0.6, 0.0, 1.0) * eRingOuter * uEnemyScanActive * eActiveScan * 0.8;
+                     
+                     gl_FragColor.rgb += (electricScan + eElectricScan + ambientGlow + eAmbientGlow + purpleDispersion + ePurpleDispersion);`
+                );
+            };
+        }
+
+        function createPBRMaterial(type) {
+            const w = 128, h = 128; 
+            const cHeight = document.createElement('canvas'); const cDiff = document.createElement('canvas'); const cRough = document.createElement('canvas');
+            cHeight.width = cDiff.width = cRough.width = w; cHeight.height = cDiff.height = cRough.height = h;
+            const ctxH = cHeight.getContext('2d'); const ctxD = cDiff.getContext('2d'); const ctxR = cRough.getContext('2d');
+
+            const idH = ctxH.createImageData(w, h); const idD = ctxD.createImageData(w, h); const idR = ctxR.createImageData(w, h);
+            
+            for(let i = 0; i < w*h*4; i+=4) {
+                let noise = Math.random(); let noise2 = Math.random();
+                let hv = type === 'wall' ? (noise > 0.4 ? 200 : 150) : (100 + noise * 60); idH.data[i] = idH.data[i+1] = idH.data[i+2] = hv; idH.data[i+3] = 255;
+                let dv = type === 'wall' ? (80 + noise * 40) : (50 + noise * 30); idD.data[i] = idD.data[i+1] = idD.data[i+2] = dv; idD.data[i+3] = 255;
+                let rv = type === 'wall' ? (150 + noise2 * 100) : (60 + noise2 * 140); idR.data[i] = idR.data[i+1] = idR.data[i+2] = rv; idR.data[i+3] = 255;
+            }
+            ctxH.putImageData(idH, 0, 0); ctxD.putImageData(idD, 0, 0); ctxR.putImageData(idR, 0, 0);
+
+            ctxH.fillStyle = ctxD.fillStyle = ctxR.fillStyle = 'rgba(20,20,20,0.8)';
+            if(type === 'floor') {
+                for(let x=0; x<=w; x+=32) {
+                    ctxH.fillRect(x-1, 0, 2, h); ctxD.fillRect(x-1, 0, 2, h);
+                    ctxH.fillRect(0, x-1, w, 2); ctxD.fillRect(0, x-1, w, 2);
+                    ctxR.fillStyle = 'rgba(255,255,255,0.9)'; ctxR.fillRect(x-1, 0, 2, h); ctxR.fillRect(0, x-1, w, 2);
+                }
+            } else {
+                ctxH.fillRect(w/2-1, 0, 2, h); ctxD.fillRect(w/2-1, 0, 2, h);
+                ctxH.fillRect(0, h/2-1, w, 2); ctxD.fillRect(0, h/2-1, w, 2);
+            }
+
+            const cNorm = document.createElement('canvas'); cNorm.width = w; cNorm.height = h;
+            const ctxN = cNorm.getContext('2d'); const idN = ctxN.createImageData(w, h);
+            const srcH = ctxH.getImageData(0,0,w,h).data;
+
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const i = (y * w + x) * 4;
+                    const dx = (srcH[(y * w + Math.min(w - 1, x + 1)) * 4] - srcH[(y * w + Math.max(0, x - 1)) * 4]) / 255.0;
+                    const dy = (srcH[(Math.min(h - 1, y + 1) * w + x) * 4] - srcH[(Math.max(0, y - 1) * w + x) * 4]) / 255.0;
+                    const dz = type === 'wall' ? 0.4 : 0.8;
+                    const len = Math.sqrt(dx*dx + dy*dy + dz*dz);
+                    idN.data[i] = (dx/len * 0.5 + 0.5) * 255; idN.data[i+1] = (dy/len * 0.5 + 0.5) * 255; idN.data[i+2] = (dz/len * 0.5 + 0.5) * 255; idN.data[i+3] = 255;
+                }
+            }
+            ctxN.putImageData(idN, 0, 0);
+
+            const texD = new THREE.CanvasTexture(cDiff); texD.wrapS = texD.wrapT = THREE.RepeatWrapping;
+            const texN = new THREE.CanvasTexture(cNorm); texN.wrapS = texN.wrapT = THREE.RepeatWrapping;
+            const texR = new THREE.CanvasTexture(cRough); texR.wrapS = texR.wrapT = THREE.RepeatWrapping;
+            
+            const mat = new THREE.MeshStandardMaterial({ map: texD, normalMap: texN, roughnessMap: texR, metalness: type === 'floor' ? 0.7 : 0.2 });
+            patchMaterialForScan(mat);
+            return mat;
+        }
+
+        function applyRepeat(mat, rx, ry) {
+            if(mat.map) mat.map.repeat.set(rx, ry);
+            if(mat.normalMap) mat.normalMap.repeat.set(rx, ry);
+            if(mat.roughnessMap) mat.roughnessMap.repeat.set(rx, ry);
+        }
+
+        function createTreeMaterials() {
+            const barkCanvas = document.createElement('canvas'); barkCanvas.width = 64; barkCanvas.height = 128; 
+            const bCtx = barkCanvas.getContext('2d');
+            for (let i = 0; i < 64 * 128; i++) {
+                let y = Math.floor(i / 64); let x = i % 64; let noise = Math.random();
+                let stripe = Math.sin(y * 0.2) * 0.5 + 0.5; let val = Math.floor(40 + stripe * 30 + noise * 20);
+                bCtx.fillStyle = `rgb(${val}, ${val * 0.8}, ${val * 0.6})`; bCtx.fillRect(x, y, 1, 1);
+            }
+            const barkTex = new THREE.CanvasTexture(barkCanvas); barkTex.wrapS = THREE.RepeatWrapping; barkTex.wrapT = THREE.RepeatWrapping; barkTex.repeat.set(1, 4);
+            const barkMat = new THREE.MeshStandardMaterial({ map: barkTex, roughness: 0.9, metalness: 0.0 });
+            patchMaterialForScan(barkMat);
+
+            const leafCanvas = document.createElement('canvas'); leafCanvas.width = 64; leafCanvas.height = 64;
+            const lCtx = leafCanvas.getContext('2d');
+            for(let y=0; y<64; y++) {
+                for(let x=0; x<64; x++) {
+                    let noise = Math.random();
+                    if (noise > 0.3) {
+                        let g = 30 + noise * 50; lCtx.fillStyle = `rgba(${g*0.2}, ${g}, ${g*0.3}, ${0.7 + noise*0.3})`; lCtx.fillRect(x, y, 1, 1);
+                    } else {
+                        lCtx.fillStyle = 'rgba(0,0,0,0)'; lCtx.fillRect(x, y, 1, 1);
+                    }
+                }
+            }
+            const leafTex = new THREE.CanvasTexture(leafCanvas); leafTex.wrapS = THREE.RepeatWrapping; leafTex.wrapT = THREE.RepeatWrapping; leafTex.repeat.set(2, 2);
+            const leafMat = new THREE.MeshStandardMaterial({ map: leafTex, transparent: true, alphaTest: 0.4, side: THREE.DoubleSide, roughness: 0.8 });
+            patchMaterialForScan(leafMat);
+
+            return { barkMat, leafMat };
+        }
+
+        function createTallTree(barkMat, leafMat, x, z) {
+            const treeGroup = new THREE.Group(); treeGroup.position.set(x, 0, z);
+            const trunkHeight = 40 + Math.random() * 35; 
+            
+            const trunkGeom = new THREE.CylinderGeometry(0.8, 2.0, trunkHeight, 5, 2); 
+            trunkGeom.translate(0, trunkHeight / 2, 0); 
+            
+            const trunk = new THREE.Mesh(trunkGeom, barkMat); trunk.castShadow = true; trunk.receiveShadow = false; treeGroup.add(trunk);
+            solidObstacles.push(trunk); 
+
+            const numLayers = 3 + Math.floor(Math.random() * 2);
+            for(let i = 0; i < numLayers; i++) {
+                let t = i / (numLayers - 1); let h = trunkHeight * (0.3 + t * 0.7); let layerRadius = 11 * (1 - t) + 2.5; let layerHeight = 15 + Math.random() * 8;
+                const leafGeom = new THREE.ConeGeometry(layerRadius, layerHeight, 6, 1, true); 
+                leafGeom.translate(0, -layerHeight/2, 0); 
+                
+                const leaves = new THREE.Mesh(leafGeom, leafMat); leaves.position.y = h; leaves.rotation.y = Math.random() * Math.PI; 
+                leaves.castShadow = true; leaves.receiveShadow = false; treeGroup.add(leaves);
+                solidObstacles.push(leaves); 
+            }
+            
+            buildings.push({ mesh: treeGroup, x: x, z: z, w: 5.0, d: 5.0, h: trunkHeight, layer: 0 }); 
+            scene.add(treeGroup);
+            return treeGroup;
+        }
+
+        function createMaze() {
+            const h = 8; 
+            const wallMat = createPBRMaterial('wall'); applyRepeat(wallMat, TILE_SIZE / 10, h / 10);
+            const { barkMat, leafMat } = createTreeMaterials();
+            
+            for (let y = 0; y < MAZE_TILES; y++) {
+                mazeData[y] = []; flowField[y] = [];
+                for (let x = 0; x < MAZE_TILES; x++) {
+                    if (x === 0 || x === MAZE_TILES-1 || y === 0 || y === MAZE_TILES-1) { mazeData[y][x] = 1; } 
+                    else { mazeData[y][x] = Math.random() > 0.82 ? 1 : 0; }
+                    flowField[y][x] = 9999;
+                }
+            }
+
+            const cx = Math.floor(MAZE_TILES/2); const cz = Math.floor(MAZE_TILES/2);
+            for(let dy=-4; dy<=4; dy++){ for(let dx=-4; dx<=4; dx++){ mazeData[cz+dy][cx+dx] = 0; } }
+
+            for(let i = 0; i < 500; i++) { 
+                let tx = Math.floor(Math.random() * (MAZE_TILES - 6)) + 3; let tz = Math.floor(Math.random() * (MAZE_TILES - 6)) + 3;
+                if (Math.abs(tx - cx) < 10 && Math.abs(tz - cz) < 10) continue;
+                if (mazeData[tz][tx] === 0) {
+                    let wx = (tx - MAZE_TILES/2) * TILE_SIZE + TILE_SIZE/2; 
+                    let wz = (tz - MAZE_TILES/2) * TILE_SIZE + TILE_SIZE/2;
+                    createTallTree(barkMat, leafMat, wx, wz); 
+                    mazeData[tz][tx] = 4;
+                }
+            }
+
+            for (let y = 0; y < MAZE_TILES; y++) {
+                for (let x = 0; x < MAZE_TILES; x++) {
+                    if (mazeData[y][x] === 1) {
+                        let isBuilding = Math.random() > 0.85; let currentH = isBuilding ? h + 10 + Math.random() * 25 : h;
+                        let wallGeom = new THREE.BoxGeometry(TILE_SIZE, currentH, TILE_SIZE);
+                        let mesh = new THREE.Mesh(wallGeom, wallMat);
+                        let wx = (x - MAZE_TILES/2) * TILE_SIZE + TILE_SIZE/2; let wz = (y - MAZE_TILES/2) * TILE_SIZE + TILE_SIZE/2;
+                        mesh.position.set(wx, currentH/2, wz); mesh.castShadow = true; mesh.receiveShadow = false;
+                        scene.add(mesh); buildings.push({ mesh: mesh, x: wx, z: wz, w: TILE_SIZE, d: TILE_SIZE, h: currentH, layer: 0 });
+                        solidObstacles.push(mesh); 
+                    }
+                }
+            }
+        }
+
+        function createRobotEnemy(x, z) {
+            singleEnemy = new THREE.Group(); singleEnemy.position.set(x, 0, z); 
+            const robotMat = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, metalness: 0.9, roughness: 0.25, transparent: true, opacity: 1.0 });
+            patchMaterialForScan(robotMat); 
+            
+            const eyeMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 1.5, transparent: true, opacity: 1.0 });
+
+            const torso = new THREE.Mesh(new THREE.BoxGeometry(2, 3, 1.5), robotMat); torso.position.y = 4.5; torso.castShadow = true; torso.receiveShadow = true; singleEnemy.add(torso);
+            const head = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.2, 1.2), robotMat); head.position.y = 2.1; head.castShadow = true; torso.add(head);
+            
+            const visorMesh = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.22, 0.1), new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.1 }));
+            visorMesh.position.set(0, 0.1, 0.58); head.add(visorMesh);
+
+            robotPupilMesh = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), eyeMat);
+            robotPupilMesh.position.set(0, 0, 0.06); 
+            visorMesh.add(robotPupilMesh);
+
+            const laserMat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.0 });
+            const laserGeo = new THREE.CylinderGeometry(0.015, 0.015, 200, 4, 1, true);
+            laserGeo.rotateX(Math.PI / 2); laserGeo.translate(0, 0, 100);
+
+            laserLineLeft = new THREE.Mesh(laserGeo, laserMat); laserLineLeft.position.set(-0.25, 0.1, 0.6); head.add(laserLineLeft);
+            laserLineRight = new THREE.Mesh(laserGeo, laserMat); laserLineRight.position.set(0.25, 0.1, 0.6); head.add(laserLineRight);
+            
+            function createLimb(w, h, d, px, py, pz) {
+                const pivot = new THREE.Group(); pivot.position.set(px, py, pz);
+                const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), robotMat); mesh.position.y = -h/2; mesh.castShadow = true; pivot.add(mesh); return pivot;
+            }
+            
+            const leftArm = createLimb(0.7, 2.5, 0.7, -1.4, 1.1, 0); const rightArm = createLimb(0.7, 2.5, 0.7, 1.4, 1.1, 0);
+            const leftLeg = createLimb(0.9, 3.0, 0.9, -0.6, -1.5, 0); const rightLeg = createLimb(0.9, 3.0, 0.9, 0.6, -1.5, 0);
+            torso.add(leftArm, rightArm, leftLeg, rightLeg);
+            
+            singleEnemy.userData = { leftArm, rightArm, leftLeg, rightLeg, torso, speed: enemySpeedValue, walkCycle: 0, lastScanTime: 0, robotMat: robotMat, eyeMat: eyeMat };
+            scene.add(singleEnemy);
+
+            const holoMat = new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true, transparent: true, opacity: 0.8, depthTest: false });
+            seekerHologram = singleEnemy.clone();
+            seekerHologram.traverse((child) => { if (child.isMesh) { child.material = holoMat; } });
+            seekerHologram.visible = false; scene.add(seekerHologram);
+        }
+
+        function createObjectiveCubes() {
+            const cubeMat = new THREE.MeshStandardMaterial({ 
+                color: 0x00ffcc, emissive: 0x00ffcc, emissiveIntensity: 1.5, roughness: 0.1, metalness: 0.9 
+            });
+            patchMaterialForScan(cubeMat);
+
+            const realGeo = new THREE.OctahedronGeometry(1.4, 0);
+            
+            realCube = new THREE.Mesh(realGeo, cubeMat);
+            realCube.castShadow = true; realCube.position.set(0, -999, 0); 
+            scene.add(realCube);
+
+            fakeCube = new THREE.Mesh(realGeo, cubeMat);
+            fakeCube.castShadow = true; fakeCube.position.set(0, -999, 0); 
+            scene.add(fakeCube);
+
+            const beamGeo = new THREE.CylinderGeometry(1.2, 1.2, 800, 16, 1, true);
+            beamGeo.translate(0, 400, 0);
+
+            const baseBeamMaterial = new THREE.MeshBasicMaterial({
+                color: 0x00ffcc, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false
+            });
+
+            realBeam = new THREE.Mesh(beamGeo, baseBeamMaterial.clone());
+            realBeam.frustumCulled = false; 
+            scene.add(realBeam); 
+            
+            fakeBeam = new THREE.Mesh(beamGeo, baseBeamMaterial.clone());
+            fakeBeam.frustumCulled = false;
+            scene.add(fakeBeam);
+            
+            realCube.userData = { revealTimer: 0, revealedThisScan: false };
+            fakeCube.userData = { revealTimer: 0, revealedThisScan: false };
+        }
+
+        function spawnNextCubePair() {
+            try {
+                let rx = 0, rz = 0; let fx = 0, fz = 0; let valid = false; let attempts = 0;
+                const px = camera.position.x; const pz = camera.position.z;
+
+                while(!valid && attempts < 1000) {
+                    attempts++;
+                    const tx = Math.floor(Math.random() * (MAZE_TILES - 8)) + 4;
+                    const tz = Math.floor(Math.random() * (MAZE_TILES - 8)) + 4;
+                    if(mazeData[tz] && mazeData[tz][tx] === 0) {
+                        rx = (tx - MAZE_TILES/2) * TILE_SIZE + TILE_SIZE/2;
+                        rz = (tz - MAZE_TILES/2) * TILE_SIZE + TILE_SIZE/2;
+                        const distToPlayer = Math.sqrt((rx-px)*(rx-px) + (rz-pz)*(rz-pz));
+                        if (distToPlayer > 45) valid = true;
+                    }
+                }
+                if (!valid) { rx = 15; rz = 15; } 
+
+                valid = false;
+                attempts = 0;
+                while(!valid && attempts < 1000) {
+                    attempts++;
+                    const tx = Math.floor(Math.random() * (MAZE_TILES - 8)) + 4;
+                    const tz = Math.floor(Math.random() * (MAZE_TILES - 8)) + 4;
+                    if(mazeData[tz] && mazeData[tz][tx] === 0) {
+                        fx = (tx - MAZE_TILES/2) * TILE_SIZE + TILE_SIZE/2;
+                        fz = (tz - MAZE_TILES/2) * TILE_SIZE + TILE_SIZE/2;
+                        const distToPlayer = Math.sqrt((fx-px)*(fx-px) + (fz-pz)*(fz-pz));
+                        const distToReal = Math.sqrt((rx-fx)*(rx-fx) + (rz-fz)*(rz-fz));
+                        if (distToPlayer > 45 && distToReal > 100) valid = true; 
+                    }
+                }
+                if (!valid) { fx = -15; fz = -15; } 
+
+                if (realCube) realCube.position.set(rx, 2.5, rz);
+                if (fakeCube) fakeCube.position.set(fx, 2.5, fz);
+                if (realBeam) realBeam.position.set(rx, 0, rz);
+                if (fakeBeam) fakeBeam.position.set(fx, 0, fz);
+
+                if (realCube && realCube.userData) {
+                    realCube.userData.revealTimer = 0;
+                    realCube.userData.revealedThisScan = false;
+                }
+                if (fakeCube && fakeCube.userData) {
+                    fakeCube.userData.revealTimer = 0;
+                    fakeCube.userData.revealedThisScan = false;
+                }
+                if (realBeam && realBeam.material) realBeam.material.opacity = 0;
+                if (fakeBeam && fakeBeam.material) fakeBeam.material.opacity = 0;
+            } catch (err) {
+                console.error("Cube Spawner Error: ", err);
+            }
+        }
+
+        function checkObjectiveCollisions() {
+            if (!gameActive || amISeeker || !realCube || !fakeCube) return;
+
+            const playerPos = camera.position;
+
+            const distReal = playerPos.distanceTo(realCube.position);
+            if (distReal < 3.2 && realCube.position.y > -50) { 
+                
+                realCube.position.set(0, -999, 0); 
+                if (realBeam) realBeam.position.set(0, -999, 0); 
+                if (realBeam && realBeam.material) realBeam.material.opacity = 0;
+                realCube.userData.revealTimer = 0;
+
+                updateCubeUI(Number(cubesCollected) + 1);
+
+                const stat = document.getElementById('scan-status');
+                if (stat) { stat.innerText = "CO-ORDINATES RETRIEVED!"; stat.style.color = "#00ff88"; }
+
+                if (cubesCollected >= maxCubesToWin) { 
+                    handleHiderWin(true); 
+                } else { 
+                    spawnNextCubePair(); 
+                }
+                return;
+            }
+
+            const distFake = playerPos.distanceTo(fakeCube.position);
+            if (distFake < 3.2 && fakeCube.position.y > -50) {
+                
+                fakeCube.position.set(0, -999, 0);
+                if (fakeBeam) fakeBeam.position.set(0, -999, 0);
+                if (fakeBeam && fakeBeam.material) fakeBeam.material.opacity = 0;
+                fakeCube.userData.revealTimer = 0;
+                fakeCube.userData.revealedThisScan = false;
+
+                const decoyAlert = document.getElementById('decoy-alert');
+                if (decoyAlert) {
+                    decoyAlert.style.display = 'block';
+                    setTimeout(() => { decoyAlert.style.display = 'none'; }, 2200);
+                }
+            }
+        }
+
+        function handleDefeat(seekerWon) {
+            gameActive = false;
+            if (singleEnemy) {
+                singleEnemy.visible = true;
+                singleEnemy.userData.robotMat.opacity = 1.0;
+                singleEnemy.userData.eyeMat.opacity = 1.0;
+            }
+            if (!isTouchDevice) document.exitPointerLock();
+            
+            document.getElementById('mobile-controls').style.display = 'none';
+            document.getElementById('hud-toggle').style.display = 'none';
+            document.getElementById('cube-tracker').style.display = 'none';
+            document.getElementById('stealth-indicator').style.display = 'none';
+            
+            const screen = document.getElementById('game-over-screen');
+            const title = document.getElementById('game-over-title');
+            const sub = document.getElementById('game-over-sub');
+            screen.style.display = 'flex';
+            if (amISeeker) {
+                title.innerText = seekerWon ? "VICTORY" : "DEFEAT";
+                title.style.color = seekerWon ? "#00ff88" : "#ff3333";
+                title.style.textShadow = seekerWon ? "0 0 15px rgba(0, 255, 136, 0.6)" : "0 0 15px rgba(255, 51, 51, 0.6)";
+                sub.innerText = seekerWon ? "You successfully intercepted the target." : "Target escaped your sweeps.";
+            } else {
+                title.innerText = !seekerWon ? "VICTORY" : "CAPTURED";
+                title.style.color = !seekerWon ? "#00ff88" : "#ff3333";
+                title.style.textShadow = !seekerWon ? "0 0 15px rgba(0, 255, 136, 0.6)" : "0 0 15px rgba(255, 51, 51, 0.6)";
+                sub.innerText = !seekerWon ? "You evaded capture." : "The Seeker discovered your coordinates.";
+            }
+        }
+
+        function handleHiderWin(amIHiderWhoWon) {
+            gameActive = false;
+            if (!isTouchDevice) document.exitPointerLock();
+            document.getElementById('mobile-controls').style.display = 'none';
+            document.getElementById('hud-toggle').style.display = 'none';
+            document.getElementById('cube-tracker').style.display = 'none';
+            document.getElementById('stealth-indicator').style.display = 'none';
+            
+            const screen = document.getElementById('game-over-screen');
+            const title = document.getElementById('game-over-title');
+            const sub = document.getElementById('game-over-sub');
+            screen.style.display = 'flex';
+
+            if (amIHiderWhoWon) {
+                title.innerText = "VICTORY";
+                title.style.color = "#00ff88";
+                title.style.textShadow = "0 0 15px rgba(0, 255, 136, 0.6)";
+                sub.innerText = "You retrieved all 5 tactical matrix data cubes! Evacuation successful.";
+            } else {
+                title.innerText = "DEFEAT";
+                title.style.color = "#ff3333";
+                title.style.textShadow = "0 0 15px rgba(255, 51, 51, 0.6)";
+                sub.innerText = "The Hider completed their collection. The simulation has ended.";
+            }
+        }
+
+        function initAudio() {
+            try {
+                if (!audioCtx) {
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    if (AudioContext) {
+                        audioCtx = new AudioContext();
+                        heartFilter = audioCtx.createBiquadFilter();
+                        heartFilter.type = 'lowpass';
+                        heartFilter.frequency.value = 150; 
+                        heartFilter.connect(audioCtx.destination);
+                    }
+                }
+                if (audioCtx && audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
+            } catch(e) { console.warn("Web Audio API not supported on this device."); }
+        }
+
+        function playThump(time, vol, pitch) {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(pitch, time);
+            osc.frequency.exponentialRampToValueAtTime(pitch * 0.5, time + 0.1);
+            
+            const thumpGain = audioCtx.createGain();
+            thumpGain.gain.setValueAtTime(0, time);
+            thumpGain.gain.linearRampToValueAtTime(vol, time + 0.02);
+            thumpGain.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
+            
+            osc.connect(thumpGain);
+            thumpGain.connect(heartFilter);
+            
+            osc.start(time);
+            osc.stop(time + 0.2);
+        }
+
+        function triggerHeartbeat(volume) {
+            if (!audioCtx) return;
+            try {
+                const now = audioCtx.currentTime;
+                playThump(now, volume, 65);
+                playThump(now + 0.18, volume * 0.8, 60); 
+            } catch(e) {}
+        }
+
+        function startGameSequence() {
+            initAudio(); 
+
+            document.getElementById('mp-menu-container').style.display = 'none';
+            document.getElementById('crosshair').style.display = 'block';
+            document.getElementById('hud-container').style.display = 'block';
+            document.getElementById('hud-toggle').style.display = 'block';
+            
+            if (isMultiplayer) {
+                const myData = lobbyData.players[currentUser.uid];
+                amISeeker = myData.role === 'seeker';
+            } else {
+                const prefRole = document.querySelector('input[name="preferred-role"]:checked').value;
+                if (prefRole === 'random') {
+                    amISeeker = Math.random() < 0.5;
+                } else {
+                    amISeeker = (prefRole === 'seeker');
+                }
+            }
+            
+            const roleHUD = document.getElementById('hud-role');
+            const objectiveHUD = document.getElementById('hud-objective-text');
+            
+            document.getElementById('stealth-indicator').style.display = 'none';
+
+            if (amISeeker) {
+                roleHUD.innerText = "SEEKER [HUNTER]"; roleHUD.style.color = "#ff3333";
+                objectiveHUD.innerText = "INTERCEPT HIDER TARGET";
+                objectiveHUD.style.color = "#ff3333";
+                isPlayerFrozen = true; isEnemyFrozen = false;
+                document.getElementById('freeze-overlay').style.display = "flex";
+                document.getElementById('freeze-label').innerText = "SEEKER FROZEN - Target Hider Running";
+                customUniforms.uAmISeeker.value = 1.0; 
+                enemyUniforms.uEnemyAmISeeker.value = 0.0; 
+
+                if (realCube) {
+                    realCube.visible = false; fakeCube.visible = false;
+                    realBeam.visible = false; fakeBeam.visible = false;
+                }
+                document.getElementById('cube-tracker').style.display = 'none';
+            } else {
+                roleHUD.innerText = "HIDER [PREY]"; roleHUD.style.color = "#00e5ff";
+                isPlayerFrozen = false; isEnemyFrozen = true; 
+                document.getElementById('freeze-overlay').style.display = "flex";
+                document.getElementById('freeze-label').innerText = "HIDER Head Start! ESCAPE THE AREA";
+                customUniforms.uAmISeeker.value = 0.0; 
+                enemyUniforms.uEnemyAmISeeker.value = 1.0; 
+
+                if (realCube) {
+                    realCube.visible = true; fakeCube.visible = true;
+                    realBeam.visible = true; fakeBeam.visible = true;
+                }
+                document.getElementById('cube-tracker').style.display = 'flex';
+                updateCubeUI(0);
+                spawnNextCubePair();
+            }
+
+            if (singleEnemy) {
+                singleEnemy.userData.speed = enemySpeedValue;
+                if (amISeeker) {
+                    singleEnemy.visible = true; 
+                    singleEnemy.userData.robotMat.opacity = 1.0; singleEnemy.userData.eyeMat.opacity = 1.0;
+                } else {
+                    singleEnemy.visible = true; 
+                }
+            }
+            
+            freezeTimerValue = 8.0;
+            gameActive = true;
+
+            if (isMultiplayer) {
+                if (networkUpdateInterval) clearInterval(networkUpdateInterval);
+                networkUpdateInterval = setInterval(broadcastNetworkState, 150);
+            }
+
+            if (isTouchDevice) {
+                isLocked = true;
+                applyTouchUIState();
+            } else {
+                document.body.requestPointerLock();
+            }
+        }
+
+        async function broadcastNetworkState() {
+            if (!gameActive || !currentUser || !currentLobbyId) return;
+            const myKey = isHost ? 'p1' : 'p2';
+            
+            const stateUpdate = {};
+            stateUpdate[`state.${myKey}`] = {
+                x: camera.position.x,
+                z: camera.position.z,
+                r: yaw,
+                scanTrigger: myScanTriggerTimestamp,
+                captured: false,
+                cubesCollected: cubesCollected
+            };
+
+            if (isHost && amISeeker && freezeTimerValue <= 0 && singleEnemy) {
+                const dist = singleEnemy.position.distanceTo(camera.position);
+                if (dist < 4.5) {
+                    stateUpdate[`state.p1.captured`] = true; 
+                }
+            } else if (isHost && !amISeeker && freezeTimerValue <= 0 && singleEnemy) {
+                const dist = singleEnemy.position.distanceTo(camera.position);
+                if (dist < 4.5) {
+                    stateUpdate[`state.p2.captured`] = true;
+                }
+            }
+            
+            try { await updateDoc(getLobbyRef(currentLobbyId), stateUpdate); } catch (e) {}
+        }
+
+        function triggerScan() {
+            if (isPlayerFrozen) {
+                const stat = document.getElementById('scan-status');
+                if (stat) {
+                    stat.innerText = "LOCKED DURING STARTUP"; stat.style.color = "#ff3333";
+                    setTimeout(() => { if (scanData.active === 0 && scanCooldownTimer <= 0) { stat.innerText = "READY [MMB]"; stat.style.color = "#00ff88"; } }, 1500);
+                }
+                return; 
+            }
+
+            if (scanData.active === 0 && scanCooldownTimer <= 0) {
+                scanData.origin.copy(camera.position);
+                scanData.distance = 0; scanData.active = 1.0; scanData.hasRevealedEnemy = false;
+                myScanTriggerTimestamp = Date.now(); 
+                
+                if (realCube && realCube.userData) realCube.userData.revealedThisScan = false;
+                if (fakeCube && fakeCube.userData) fakeCube.userData.revealedThisScan = false;
+
+                const stat = document.getElementById('scan-status');
+                if(stat) { stat.innerText = "PROPAGATING..."; stat.style.color = "#00e5ff"; }
+            }
+        }
+
+        function triggerEnemyScanVisual() {
+            if (!singleEnemy) return;
+            enemyScanData.origin.copy(singleEnemy.position);
+            enemyScanData.distance = 0;
+            enemyScanData.active = 1.0;
+        }
+
+        function checkBuildingCollision(x, y, z, radius) {
+            const limit = MAP_SIZE / 2 - 2;
+            if (Math.abs(x) > limit || Math.abs(z) > limit) return true;
+
+            const minGx = Math.floor((x - radius + MAP_SIZE/2) / TILE_SIZE);
+            const maxGx = Math.floor((x + radius + MAP_SIZE/2) / TILE_SIZE);
+            const minGz = Math.floor((z - radius + MAP_SIZE/2) / TILE_SIZE);
+            const maxGz = Math.floor((z + radius + MAP_SIZE/2) / TILE_SIZE);
+
+            for (let gz = minGz; gz <= maxGz; gz++) {
+                for (let gx = minGx; gx <= maxGx; gx++) {
+                    if (gx >= 0 && gx < MAZE_TILES && gz >= 0 && gz < MAZE_TILES) {
+                        if (mazeData[gz][gx] === 1 || mazeData[gz][gx] === 4) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isLocked || (isTouchDevice && touchUiVisible)) return;
+            yaw -= (e.movementX || 0) * 0.002; pitch -= (e.movementY || 0) * 0.002;
+            pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
+            camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, currentRoll, 'YXZ'));
+        });
+
+        document.addEventListener('keydown', (e) => {
+            switch(e.code) { 
+                case 'KeyW': moveForward = true; break; 
+                case 'KeyA': moveLeft = true; break; 
+                case 'KeyS': moveBackward = true; break; 
+                case 'KeyD': moveRight = true; break; 
+                case 'ShiftLeft':
+                case 'ShiftRight': shiftPressed = true; break;
+            }
+        });
+        document.addEventListener('keyup', (e) => {
+            switch(e.code) { 
+                case 'KeyW': moveForward = false; break; 
+                case 'KeyA': moveLeft = false; break; 
+                case 'KeyS': moveBackward = false; break; 
+                case 'KeyD': moveRight = false; break; 
+                case 'ShiftLeft':
+                case 'ShiftRight': shiftPressed = false; break;
+            }
+        });
+        document.addEventListener('mousedown', (e) => { 
+            if (gameActive && !isTouchDevice && e.target.id !== 'hud-toggle' && e.target.id !== 'action-button' && e.target.id !== 'joystick-base' && e.target.id !== 'btn-toggle-pixel') {
+                document.body.requestPointerLock();
+            }
+            if (e.button === 1 && isLocked) { triggerScan(); } 
+        });
+
+        document.addEventListener('touchstart', (e) => {
+            if (!isLocked) return;
+            for(let i=0; i<e.changedTouches.length; i++) {
+                const touch = e.changedTouches[i];
+                if (touch.target.id !== 'joystick-base' && touch.target.id !== 'joystick-knob' && touch.target.id !== 'action-button' && touch.target.id !== 'hud-toggle' && touch.target.id !== 'btn-toggle-pixel') {
+                    if (touchLookId === null) { touchLookId = touch.identifier; lastTouchX = touch.pageX; lastTouchY = touch.pageY; }
+                }
+            }
+        }, {passive: false});
+
+        document.addEventListener('touchmove', (e) => {
+            if (!isLocked) return;
+            if (touchLookId !== null || joyTouchId !== null) e.preventDefault(); 
+            for(let i=0; i<e.changedTouches.length; i++) {
+                const touch = e.changedTouches[i];
+                if (touch.identifier === touchLookId) {
+                    yaw -= (touch.pageX - lastTouchX) * 0.0035; pitch -= (touch.pageY - lastTouchY) * 0.0035;
+                    pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch)); camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, currentRoll, 'YXZ'));
+                    lastTouchX = touch.pageX; lastTouchY = touch.pageY;
+                }
+            }
+        }, {passive: false});
+
+        document.addEventListener('touchend', (e) => { for(let i=0; i<e.changedTouches.length; i++) { if (e.changedTouches[i].identifier === touchLookId) touchLookId = null; } });
+
+        const joyBase = document.getElementById('joystick-base'); const joyKnob = document.getElementById('joystick-knob');
+        joyBase.addEventListener('touchstart', (e) => { e.preventDefault(); if (joyTouchId !== null) return; const touch = e.changedTouches[0]; joyTouchId = touch.identifier; joyActive = true; updateJoystick(touch); }, {passive: false});
+        joyBase.addEventListener('touchmove', (e) => { e.preventDefault(); if (!joyActive) return; for(let i=0; i<e.changedTouches.length; i++) { if (e.changedTouches[i].identifier === joyTouchId) updateJoystick(e.changedTouches[i]); } }, {passive: false});
+        joyBase.addEventListener('touchend', (e) => { e.preventDefault(); for(let i=0; i<e.changedTouches.length; i++) { if (e.changedTouches[i].identifier === joyTouchId) { joyTouchId = null; joyActive = false; joyVector.set(0, 0); joyKnob.style.transform = `translate(0px, 0px)`; } } }, {passive: false});
+        
+        function updateJoystick(touch) {
+            const rect = joyBase.getBoundingClientRect(); const maxDist = rect.width / 2;
+            let dx = touch.pageX - (rect.left + maxDist); let dy = touch.pageY - (rect.top + maxDist);
+            const distance = Math.sqrt(dx*dx + dy*dy);
+            if (distance > maxDist) { dx = (dx / distance) * maxDist; dy = (dy / distance) * maxDist; }
+            joyKnob.style.transform = `translate(${dx}px, ${dy}px)`; joyVector.set(dx / maxDist, dy / maxDist);
+        }
+
+        document.getElementById('action-button').addEventListener('touchstart', (e) => { e.preventDefault(); if (isLocked) triggerScan(); }, {passive: false});
+
+        const hudToggleBtn = document.getElementById('hud-toggle'); const mobileControlsWrapper = document.getElementById('mobile-controls');
+        let touchUiVisible = isTouchDevice;
+        
+        function applyTouchUIState() {
+            if (touchUiVisible && gameActive) { 
+                mobileControlsWrapper.style.display = 'block'; 
+                setTimeout(() => mobileControlsWrapper.classList.remove('hidden-ui'), 10); 
+                hudToggleBtn.innerText = "TOUCH UI: ON"; hudToggleBtn.style.color = "#00ff88"; hudToggleBtn.style.borderColor = "rgba(0, 229, 255, 0.5)"; 
+            } else { 
+                mobileControlsWrapper.classList.add('hidden-ui'); 
+                setTimeout(() => { if (!touchUiVisible) mobileControlsWrapper.style.display = 'none'; }, 400); 
+                hudToggleBtn.innerText = "TOUCH UI: OFF"; hudToggleBtn.style.color = "#888"; hudToggleBtn.style.borderColor = "rgba(136, 136, 136, 0.5)"; 
+            }
+        }
+        
+        hudToggleBtn.addEventListener('click', (e) => { 
+            e.preventDefault(); e.stopPropagation(); 
+            touchUiVisible = !touchUiVisible; 
+            applyTouchUIState(); 
+        });
+
+        document.addEventListener('pointerlockchange', () => {
+            if (isTouchDevice) return;
+            isLocked = document.pointerLockElement === document.body;
+        });
+
+        const queueX = new Int16Array(MAZE_TILES * MAZE_TILES);
+        const queueZ = new Int16Array(MAZE_TILES * MAZE_TILES);
+
+        function updateFlowField() {
+            const px = camera.position.x; const pz = camera.position.z;
+            const gx = Math.max(0, Math.min(MAZE_TILES - 1, Math.floor((px + MAP_SIZE/2) / TILE_SIZE)));
+            const gz = Math.max(0, Math.min(MAZE_TILES - 1, Math.floor((pz + MAP_SIZE/2) / TILE_SIZE)));
+
+            for(let y=0; y<MAZE_TILES; y++) { for(let x=0; x<MAZE_TILES; x++) flowField[y][x] = 9999; }
+            
+            let head = 0; let tail = 0;
+            queueX[tail] = gx; queueZ[tail] = gz; tail++;
+            flowField[gz][gx] = 0;
+
+            const dx = [0, 1, 0, -1]; const dz = [1, 0, -1, 0];
+
+            while(head < tail) {
+                const cx = queueX[head]; const cz = queueZ[head]; head++;
+                const cDist = flowField[cz][cx];
+
+                for(let i=0; i<4; i++) {
+                    const nx = cx + dx[i]; const nz = cz + dz[i];
+                    if(nx>=0 && nx<MAZE_TILES && nz>=0 && nz<MAZE_TILES && mazeData[nz][nx] === 0 && flowField[nz][nx] > cDist + 1) {
+                        flowField[nz][nx] = cDist + 1;
+                        queueX[tail] = nx; queueZ[tail] = nz; tail++;
+                    }
+                }
+            }
+        }
+
+        let lastRaycastTime = 0;
+        let isSeenCached = false;
+        let previousSeenState = null;
+
+        function updateEnemy(dt, time) {
+            if (!singleEnemy || isEnemyFrozen) return;
+
+            const distToPlayer = singleEnemy.position.distanceTo(camera.position);
+
+            if (!amISeeker && gameActive) {
+                const normalizedDist = Math.max(0, Math.min(1, (distToPlayer - 10) / 90));
+                heartRate = 0.4 + normalizedDist * 1.1; 
+                const vol = 1.2 - normalizedDist * 0.9; 
+                
+                const nowSec = performance.now() / 1000;
+                if (nowSec > nextHeartbeatTime) {
+                    triggerHeartbeat(vol);
+                    nextHeartbeatTime = nowSec + heartRate;
+                }
+
+                const stealthIndicator = document.getElementById('stealth-indicator'); 
+                if (freezeTimerValue > 0) {
+                    stealthIndicator.style.display = 'none';
+                } else {
+                    stealthIndicator.style.display = 'block';
+                    
+                    if (time - lastRaycastTime > 150) { 
+                        lastRaycastTime = time;
+                        let isSeen = false;
+                        const enemyEye = singleEnemy.position.clone(); enemyEye.y = 1.5; const playerEye = camera.position.clone();
+                        if (distToPlayer < 200) { 
+                            const dir = playerEye.clone().sub(enemyEye).normalize();
+                            const enemyForward = new THREE.Vector3(0, 0, 1).applyQuaternion(singleEnemy.quaternion);
+                            if (enemyForward.angleTo(dir) < Math.PI / 1.5) { 
+                                const losRay = new THREE.Raycaster(enemyEye, dir, 0, distToPlayer + 1);
+                                const hits = losRay.intersectObjects(solidObstacles);
+                                if (hits.length === 0) isSeen = true;
+                            }
+                        }
+                        isSeenCached = isSeen;
+                    }
+
+                    if (isSeenCached !== previousSeenState) {
+                        previousSeenState = isSeenCached;
+                        const pupil = document.getElementById('stealth-pupil'); const waves = document.querySelectorAll('.stealth-waves'); const eyePath = document.getElementById('stealth-eye-path');
+                        
+                        if (isSeenCached) {
+                            pupil.classList.remove('pupil-unseen'); pupil.classList.add('pupil-seen'); 
+                            eyePath.classList.remove('eye-unseen'); eyePath.classList.add('eye-seen');
+                            waves.forEach(w => { w.classList.remove('hidden-waves'); w.classList.add('seen-waves'); });
+                        } else {
+                            pupil.classList.remove('pupil-seen'); pupil.classList.add('pupil-unseen'); 
+                            eyePath.classList.remove('eye-seen'); eyePath.classList.add('eye-unseen');
+                            waves.forEach(w => { w.classList.add('hidden-waves'); w.classList.remove('seen-waves'); });
+                        }
+                    }
+                }
+            } else if (amISeeker) { document.getElementById('stealth-indicator').style.display = 'none'; }
+
+            let moved = false;
+            const dir = new THREE.Vector3();
+            let targetAngle = singleEnemy.rotation.y;
+
+            if (isMultiplayer) {
+                const curPos = singleEnemy.position.clone();
+                const netPos = new THREE.Vector3(networkTarget.x, 0, networkTarget.z);
+                const moveDist = curPos.distanceTo(netPos);
+                
+                if (moveDist > 0.1) {
+                    singleEnemy.position.lerp(netPos, 0.15); 
+                    moved = true;
+                    dir.subVectors(netPos, curPos).normalize();
+                    targetAngle = Math.atan2(dir.x, dir.z);
+                }
+                
+                let diff = networkTarget.r - singleEnemy.rotation.y;
+                while (diff < -Math.PI) diff += Math.PI * 2;
+                while (diff > Math.PI) diff -= Math.PI * 2;
+                singleEnemy.rotation.y += diff * 0.15;
+
+            } else {
+                if (distToPlayer < 4.5) {
+                    handleDefeat(true); 
+                    return;
+                }
+
+                const px = camera.position.x; const pz = camera.position.z;
+                if (!amISeeker) {
+                    const gx = Math.max(0, Math.min(MAZE_TILES-1, Math.floor((singleEnemy.position.x + MAP_SIZE/2) / TILE_SIZE))); 
+                    const gz = Math.max(0, Math.min(MAZE_TILES-1, Math.floor((singleEnemy.position.z + MAP_SIZE/2) / TILE_SIZE)));
+                    
+                    if (isSeenCached || distToPlayer < 40) {
+                        singleEnemy.userData.wanderTarget = null;
+                        let bestVal = flowField[gz][gx], bestDx = 0, bestDz = 0;
+                        [[0,1],[1,0],[0,-1],[-1,0]].forEach(([dx, dz]) => {
+                            const nx = gx+dx, nz = gz+dz;
+                            if (nx>=0 && nx<MAZE_TILES && nz>=0 && nz<MAZE_TILES && flowField[nz][nx] < bestVal) {
+                                bestVal = flowField[nz][nx]; bestDx = dx; bestDz = dz;
+                            }
+                        });
+                        if (bestDx !== 0 || bestDz !== 0) {
+                            const targetX = (gx + bestDx) * TILE_SIZE - MAP_SIZE/2 + TILE_SIZE/2; const targetZ = (gz + bestDz) * TILE_SIZE - MAP_SIZE/2 + TILE_SIZE/2;
+                            dir.set(targetX - singleEnemy.position.x, 0, targetZ - singleEnemy.position.z); if (dir.length() > 0.1) dir.normalize();
+                        } else {
+                            dir.set(px - singleEnemy.position.x, 0, pz - singleEnemy.position.z); if (dir.length() > 0.1) dir.normalize();
+                        }
+                    } else {
+                        if (!singleEnemy.userData.wanderTarget) {
+                            const possible = [];
+                            [[0,1],[1,0],[0,-1],[-1,0]].forEach(([dx, dz]) => {
+                                const nx = gx+dx, nz = gz+dz;
+                                if (nx>=0 && nx<MAZE_TILES && nz>=0 && nz<MAZE_TILES && mazeData[nz][nx] === 0) possible.push({dx, dz});
+                            });
+                            if (possible.length > 0) {
+                                const p = possible[Math.floor(Math.random() * possible.length)];
+                                const tx = (gx + p.dx) * TILE_SIZE - MAP_SIZE/2 + TILE_SIZE/2; 
+                                const tz = (gz + p.dz) * TILE_SIZE - MAP_SIZE/2 + TILE_SIZE/2;
+                                singleEnemy.userData.wanderTarget = new THREE.Vector3(tx, 0, tz);
+                            }
+                        }
+                        if (singleEnemy.userData.wanderTarget) {
+                            dir.set(singleEnemy.userData.wanderTarget.x - singleEnemy.position.x, 0, singleEnemy.userData.wanderTarget.z - singleEnemy.position.z);
+                            if (dir.length() < 2.0) singleEnemy.userData.wanderTarget = null;
+                            else dir.normalize();
+                        }
+                    }
+
+                    if (time - singleEnemy.userData.lastScanTime > 12000 && enemyScanData.active === 0) {
+                        singleEnemy.userData.lastScanTime = time; triggerEnemyScanVisual();
+                    }
+                } else {
+                    const gx = Math.max(0, Math.min(MAZE_TILES-1, Math.floor((singleEnemy.position.x + MAP_SIZE/2) / TILE_SIZE))); 
+                    const gz = Math.max(0, Math.min(MAZE_TILES-1, Math.floor((singleEnemy.position.z + MAP_SIZE/2) / TILE_SIZE)));
+                    let worstVal = -1, bestDx = 0, bestDz = 0;
+                    [[0,1],[1,0],[0,-1],[-1,0]].forEach(([dx, dz]) => {
+                        const nx = gx+dx, nz = gz+dz;
+                        if (nx>=0 && nx<MAZE_TILES && nz>=0 && nz<MAZE_TILES && mazeData[nz][nx] === 0 && flowField[nz][nx] > worstVal && flowField[nz][nx] < 9999) {
+                            worstVal = flowField[nz][nx]; bestDx = dx; bestDz = dz;
+                        }
+                    });
+                    if (bestDx !== 0 || bestDz !== 0) {
+                        const targetX = (gx + bestDx) * TILE_SIZE - MAP_SIZE/2 + TILE_SIZE/2; const targetZ = (gz + bestDz) * TILE_SIZE - MAP_SIZE/2 + TILE_SIZE/2;
+                        dir.set(targetX - singleEnemy.position.x, 0, targetZ - singleEnemy.position.z); if (dir.length() > 0.1) dir.normalize();
+                    } else {
+                        dir.set(singleEnemy.position.x - px, 0, singleEnemy.position.z - pz); if (dir.length() > 0.1) dir.normalize();
+                    }
+                }
+
+                const moveX = dir.x * singleEnemy.userData.speed * dt; const moveZ = dir.z * singleEnemy.userData.speed * dt;
+                
+                if (!checkBuildingCollision(singleEnemy.position.x + moveX, 4.5, singleEnemy.position.z, 1.3)) { singleEnemy.position.x += moveX; moved = true; }
+                if (!checkBuildingCollision(singleEnemy.position.x, 4.5, singleEnemy.position.z + moveZ, 1.3)) { singleEnemy.position.z += moveZ; moved = true; }
+                
+                if (moved) targetAngle = Math.atan2(dir.x, dir.z);
+                let diff = targetAngle - singleEnemy.rotation.y;
+                while (diff < -Math.PI) diff += Math.PI * 2; while (diff > Math.PI) diff -= Math.PI * 2;
+                singleEnemy.rotation.y += diff * 10 * dt;
+            }
+
+            if (moved) {
+                singleEnemy.userData.walkCycle += dt * 10; 
+                const swing = Math.sin(singleEnemy.userData.walkCycle) * 0.9; 
+                singleEnemy.userData.leftArm.rotation.x = -swing; singleEnemy.userData.rightArm.rotation.x = swing;
+                singleEnemy.userData.leftLeg.rotation.x = swing; singleEnemy.userData.rightLeg.rotation.x = -swing;
+                singleEnemy.userData.torso.position.y = 4.5 + Math.abs(Math.sin(singleEnemy.userData.walkCycle)) * 0.4;
+            } else {
+                singleEnemy.userData.leftArm.rotation.x *= 0.9; singleEnemy.userData.rightArm.rotation.x *= 0.9;
+                singleEnemy.userData.leftLeg.rotation.x *= 0.9; singleEnemy.userData.rightLeg.rotation.x *= 0.9;
+            }
+
+            if (robotPupilMesh) {
+                if (isSeenCached) {
+                    robotPupilMesh.position.x = 0;
+                    robotPupilMesh.material.color.setHex(0xff0000);
+                    robotPupilMesh.material.emissive.setHex(0xff0000);
+                    
+                    if (laserLineLeft && laserLineRight) {
+                        laserLineLeft.material.opacity = THREE.MathUtils.lerp(laserLineLeft.material.opacity, 0.65, 10 * dt);
+                        laserLineRight.material.opacity = THREE.MathUtils.lerp(laserLineRight.material.opacity, 0.65, 10 * dt);
+                    }
+                } else {
+                    robotPupilMesh.position.x = Math.sin(time * 0.0035) * 0.35;
+                    robotPupilMesh.material.color.setHex(0x00e5ff);
+                    robotPupilMesh.material.emissive.setHex(0x00e5ff);
+                    
+                    if (laserLineLeft && laserLineRight) {
+                        laserLineLeft.material.opacity = THREE.MathUtils.lerp(laserLineLeft.material.opacity, 0.0, 12 * dt);
+                        laserLineRight.material.opacity = THREE.MathUtils.lerp(laserLineRight.material.opacity, 0.0, 12 * dt);
+                    }
+                }
+            }
+        }
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0b101a); 
+            scene.fog = new THREE.FogExp2(0x0b101a, 0.005); 
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000); 
+            camera.position.set(0, DEFAULT_CAMERA_Y, 0);
+
+            const flashlight = new THREE.SpotLight(0xffffff, 2.0, 80, 0.6, 0.5, 1); 
+            flashlight.position.set(0, 0, 0); flashlight.target.position.set(0, 0, -1);
+            camera.add(flashlight); camera.add(flashlight.target); scene.add(camera);
+
+            renderer = new THREE.WebGLRenderer({ antialias: false }); 
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+            
+            renderer.shadowMap.enabled = true; 
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.1;
+            
+            document.getElementById('game-container').appendChild(renderer.domElement);
+
+            scene.add(new THREE.HemisphereLight(0x4477ff, 0x111122, 0.5));
+            const sun = new THREE.DirectionalLight(0xffeacc, 1.5); 
+            sun.position.set(100, 200, 100); sun.castShadow = true;
+            sun.shadow.mapSize.width = 1024; sun.shadow.mapSize.height = 1024; 
+            sun.shadow.camera.left = -400; sun.shadow.camera.right = 400; 
+            sun.shadow.camera.top = 400; sun.shadow.camera.bottom = -400;
+            sun.shadow.bias = -0.0005; scene.add(sun);
+
+            const moonCanvas = document.createElement('canvas');
+            moonCanvas.width = 512;
+            moonCanvas.height = 512;
+            const mCtx = moonCanvas.getContext('2d');
+
+            // Draw solid moon backing
+            mCtx.fillStyle = '#b0b8c3';
+            mCtx.fillRect(0, 0, 512, 512);
+
+            // Procedurally paint chaotic crater textures
+            for (let i = 0; i < 45; i++) {
+                const cx = Math.random() * 512;
+                const cy = Math.random() * 512;
+                const r = 8 + Math.random() * 35;
+                const grad = mCtx.createRadialGradient(cx, cy, 0, cx, cy, r);
+                grad.addColorStop(0, 'rgba(80, 90, 105, 0.5)');
+                grad.addColorStop(0.7, 'rgba(120, 130, 145, 0.2)');
+                grad.addColorStop(1, 'rgba(176, 184, 195, 0)');
+                mCtx.fillStyle = grad;
+                mCtx.beginPath();
+                mCtx.arc(cx, cy, r, 0, Math.PI * 2);
+                mCtx.fill();
+            }
+
+            // Draw hollow dark eye sockets
+            mCtx.fillStyle = '#090d16'; 
+            mCtx.beginPath();
+            mCtx.arc(175, 205, 42, 0, Math.PI * 2); 
+            mCtx.arc(337, 205, 42, 0, Math.PI * 2); 
+            mCtx.fill();
+
+            // Draw glowing red circular pupils
+            mCtx.fillStyle = '#ff1a1a'; 
+            mCtx.beginPath();
+            mCtx.arc(175, 210, 8, 0, Math.PI * 2);
+            mCtx.arc(337, 210, 8, 0, Math.PI * 2);
+            mCtx.fill();
+
+            // Draw white pinpoint reflections for psychotic gaze
+            mCtx.fillStyle = '#ffffff'; 
+            mCtx.beginPath();
+            mCtx.arc(173, 208, 3, 0, Math.PI * 2);
+            mCtx.arc(335, 208, 3, 0, Math.PI * 2);
+            mCtx.fill();
+
+            // Draw unsettling hollow nasal cavity
+            mCtx.fillStyle = '#090d16';
+            mCtx.beginPath();
+            mCtx.arc(246, 268, 5, 0, Math.PI * 2);
+            mCtx.arc(266, 268, 5, 0, Math.PI * 2);
+            mCtx.fill();
+
+            // Draw ominous grinning mouth arc
+            mCtx.strokeStyle = '#090d16';
+            mCtx.lineWidth = 9;
+            mCtx.beginPath();
+            mCtx.arc(256, 290, 120, 0.08 * Math.PI, 0.92 * Math.PI, false);
+            mCtx.stroke();
+
+            // Draw unsettling sharp teeth structures
+            mCtx.fillStyle = '#e2e8f0'; 
+            mCtx.lineWidth = 3;
+            for (let tx = 158; tx <= 354; tx += 18) {
+                mCtx.beginPath();
+                mCtx.moveTo(tx - 5, 335);
+                mCtx.lineTo(tx, 355 + Math.random() * 11);
+                mCtx.lineTo(tx + 5, 335);
+                mCtx.closePath();
+                mCtx.fill();
+                mCtx.stroke();
+            }
+            for (let tx = 168; tx <= 344; tx += 18) {
+                mCtx.beginPath();
+                mCtx.moveTo(tx - 5, 375);
+                mCtx.lineTo(tx, 357 - Math.random() * 11);
+                mCtx.lineTo(tx + 5, 375);
+                mCtx.closePath();
+                mCtx.fill();
+                mCtx.stroke();
+            }
+
+            // Vignette shadow around moon limb
+            const edgeGrad = mCtx.createRadialGradient(256, 256, 170, 256, 256, 256);
+            edgeGrad.addColorStop(0, 'rgba(0,0,0,0)');
+            edgeGrad.addColorStop(0.75, 'rgba(11, 16, 26, 0.45)');
+            edgeGrad.addColorStop(1, 'rgba(11, 16, 26, 1.0)'); 
+            mCtx.fillStyle = edgeGrad;
+            mCtx.beginPath();
+            mCtx.arc(256, 256, 256, 0, Math.PI * 2);
+            mCtx.fill();
+
+            // Instantiate moon sphere high above the arena
+            const moonTex = new THREE.CanvasTexture(moonCanvas);
+            const moonGeo = new THREE.SphereGeometry(45, 32, 32);
+            const moonMat = new THREE.MeshBasicMaterial({ map: moonTex, fog: false });
+            const eerieMoon = new THREE.Mesh(moonGeo, moonMat);
+            
+            eerieMoon.position.set(130, 210, -320); 
+            eerieMoon.rotation.y = Math.PI - 0.35; 
+            eerieMoon.rotation.x = 0.25; 
+            scene.add(eerieMoon);
+
+            const groundMat = createPBRMaterial('floor'); applyRepeat(groundMat, MAP_SIZE / 10, MAP_SIZE / 10);
+            const ground = new THREE.Mesh(new THREE.PlaneGeometry(MAP_SIZE, MAP_SIZE), groundMat); ground.rotation.x = -Math.PI/2; ground.receiveShadow = true; scene.add(ground);
+
+            createMaze();
+            createRobotEnemy(0, -15); 
+            createObjectiveCubes(); 
+
+            function updateRendererSize() {
+                const width = window.innerWidth;
+                const height = window.innerHeight;
+                
+                if (pixelatedModeActive) {
+                    // Downscale resolution to produce stylized crisp pixel styling reminiscent of Screenshot 2026-05-30 124945.jpg
+                    renderer.setSize(Math.floor(width / pixelSize), Math.floor(height / pixelSize), false);
+                    renderer.domElement.style.width = '100%';
+                    renderer.domElement.style.height = '100%';
+                    renderer.domElement.style.imageRendering = 'pixelated';
+                    renderer.domElement.style.setProperty('image-rendering', 'pixelated');
+                    renderer.domElement.style.setProperty('image-rendering', 'crisp-edges');
+                    renderer.domElement.style.setProperty('image-rendering', '-moz-crisp-edges');
+                } else {
+                    // Restore crisp high fidelity standard mode reminiscent of Screenshot 2026-05-30 124957.jpg
+                    renderer.setSize(width, height);
+                    renderer.domElement.style.width = '';
+                    renderer.domElement.style.height = '';
+                    renderer.domElement.style.imageRendering = 'auto';
+                    renderer.domElement.style.setProperty('image-rendering', 'auto');
+                }
+            }
+            
+            updateRendererSize();
+            renderer.setPixelRatio(1); // Consistent 1:1 screen projection alignment
+            
+            const pixelToggleBtn = document.getElementById('btn-toggle-pixel');
+            pixelToggleBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                pixelatedModeActive = !pixelatedModeActive;
+                if (pixelatedModeActive) {
+                    pixelToggleBtn.innerText = "PIXEL MODE: ON";
+                    pixelToggleBtn.style.color = "#00ff88";
+                    pixelToggleBtn.style.borderColor = "rgba(0, 255, 136, 0.5)";
+                } else {
+                    pixelToggleBtn.innerText = "PIXEL MODE: OFF";
+                    pixelToggleBtn.style.color = "#00e5ff";
+                    pixelToggleBtn.style.borderColor = "rgba(0, 229, 255, 0.5)";
+                }
+                updateRendererSize();
+            });
+
+            window.addEventListener('resize', () => { 
+                camera.aspect = window.innerWidth / window.innerHeight; 
+                camera.updateProjectionMatrix(); 
+                updateRendererSize(); 
+            }, false);
+
+            animate(); 
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = performance.now(); let dt = (time - prevTime) / 1000; prevTime = time;
+
+            if (dt > 0.1) dt = 0.1;
+
+            if (!gameActive) { renderer.render(scene, camera); return; }
+
+            if (freezeTimerValue > 0) {
+                freezeTimerValue -= dt; document.getElementById('freeze-timer').innerText = Math.ceil(freezeTimerValue);
+                if (freezeTimerValue <= 0) {
+                    freezeTimerValue = 0; isPlayerFrozen = false; isEnemyFrozen = false; document.getElementById('freeze-overlay').style.display = "none";
+                }
+
+                if (amISeeker && singleEnemy) {
+                    if (freezeTimerValue > 6.0) {
+                        singleEnemy.visible = true; singleEnemy.userData.robotMat.opacity = 1.0; singleEnemy.userData.eyeMat.opacity = 1.0;
+                    } else if (freezeTimerValue > 4.5) {
+                        const fadeAlpha = (freezeTimerValue - 4.5) / 1.5; singleEnemy.userData.robotMat.opacity = fadeAlpha; singleEnemy.userData.eyeMat.opacity = fadeAlpha;
+                    } else {
+                        singleEnemy.visible = false; 
+                    }
+                }
+            }
+
+            if (!amISeeker && realCube && fakeCube) {
+                if (realCube.position.y > -50) {
+                    realCube.rotation.y += 1.5 * dt; realCube.rotation.x += 0.8 * dt;
+                    realCube.position.y = 2.5 + Math.sin(time * 0.003) * 0.4;
+                }
+                if (fakeCube.position.y > -50) {
+                    fakeCube.rotation.y += 1.5 * dt; fakeCube.rotation.x += 0.8 * dt;
+                    fakeCube.position.y = 2.5 + Math.sin((time + 500) * 0.003) * 0.4;
+                }
+
+                if (realCube.userData.revealTimer > 0) {
+                    realCube.userData.revealTimer -= dt;
+                    if (realBeam && realBeam.material) realBeam.material.opacity = Math.min(1.0, realCube.userData.revealTimer * 0.15); 
+                } else if (realBeam && realBeam.material) {
+                    realBeam.material.opacity = 0;
+                }
+
+                if (fakeCube.userData.revealTimer > 0) {
+                    fakeCube.userData.revealTimer -= dt;
+                    if (fakeBeam && fakeBeam.material) fakeBeam.material.opacity = Math.min(1.0, fakeCube.userData.revealTimer * 0.15);
+                } else if (fakeBeam && fakeBeam.material) {
+                    fakeBeam.material.opacity = 0;
+                }
+            }
+
+            if (scanData.active > 0) {
+                scanData.distance += scanData.speed * dt;
+                
+                if (!amISeeker && realCube && fakeCube) {
+                    const distToReal = scanData.origin.distanceTo(realCube.position);
+                    if (scanData.distance >= distToReal && !realCube.userData.revealedThisScan) {
+                        realCube.userData.revealedThisScan = true;
+                        realCube.userData.revealTimer = 15.0; 
+                    }
+
+                    const distToFake = scanData.origin.distanceTo(fakeCube.position);
+                    if (scanData.distance >= distToFake && !fakeCube.userData.revealedThisScan) {
+                        fakeCube.userData.revealedThisScan = true;
+                        fakeCube.userData.revealTimer = 15.0;
+                    }
+                }
+
+                if (amISeeker && singleEnemy && !scanData.hasRevealedEnemy) {
+                    if (scanData.distance >= scanData.origin.distanceTo(singleEnemy.position)) {
+                        scanData.hasRevealedEnemy = true; revealTimer = 8.0; seekerHologram.visible = true;
+                    }
+                }
+                if (scanData.distance > scanData.maxDistance) {
+                    scanData.active -= dt * 0.45; 
+                    if (scanData.active < 0) { scanData.active = 0; scanCooldownTimer = scanCooldownDuration; }
+                }
+            }
+
+            if (scanCooldownTimer > 0) {
+                scanCooldownTimer -= dt; const stat = document.getElementById('scan-status');
+                if (stat) { stat.innerText = `RECHARGING [${Math.ceil(scanCooldownTimer)}s]`; stat.style.color = "#ffaa00"; }
+                if (scanCooldownTimer <= 0 && stat) { stat.innerText = "READY [MMB]"; stat.style.color = "#00ff88"; }
+            }
+
+            if (enemyScanData.active > 0) {
+                enemyScanData.distance += enemyScanData.speed * dt;
+                if (enemyScanData.distance > enemyScanData.maxDistance) {
+                    enemyScanData.active -= dt * 0.45; if (enemyScanData.active < 0) enemyScanData.active = 0;
+                }
+            }
+
+            if (amISeeker && revealTimer > 0) {
+                revealTimer -= dt; document.getElementById('hud-reveal-time').innerText = `HOLOGRAM EXPOSURE: ${revealTimer.toFixed(1)}s`; document.getElementById('hud-reveal-time').style.color = "#ff3333";
+                
+                if (singleEnemy) {
+                    seekerHologram.position.copy(singleEnemy.position); seekerHologram.rotation.copy(singleEnemy.rotation);
+                    seekerHologram.children[0].position.copy(singleEnemy.userData.torso.position); seekerHologram.children[0].rotation.copy(singleEnemy.userData.torso.rotation);
+                    const sT = singleEnemy.userData.torso; const hT = seekerHologram.children[0];
+                    hT.children[1].rotation.copy(sT.children[1].rotation); hT.children[2].rotation.copy(sT.children[2].rotation); hT.children[3].rotation.copy(sT.children[3].rotation); hT.children[4].rotation.copy(sT.children[4].rotation);
+                }
+                
+                if (revealTimer <= 0) { revealTimer = 0; seekerHologram.visible = false; document.getElementById('hud-reveal-time').innerText = "OFFLINE"; document.getElementById('hud-reveal-time').style.color = "#888"; }
+            }
+
+            customUniforms.uScanOrigin.value.copy(scanData.origin); customUniforms.uScanDistance.value = scanData.distance; customUniforms.uScanActive.value = scanData.active;
+            enemyUniforms.uScanOrigin.value.copy(enemyScanData.origin); enemyUniforms.uScanDistance.value = enemyScanData.distance; enemyUniforms.uScanActive.value = enemyScanData.active;
+
+            cullTimer += dt;
+            if (cullTimer > 0.5) {
+                cullTimer = 0;
+                const cullDistSq = 250 * 250;
+                for (let i = 0; i < buildings.length; i++) {
+                    const b = buildings[i];
+                    const distSq = (b.x - camera.position.x)**2 + (b.z - camera.position.z)**2;
+                    if (b.mesh) b.mesh.visible = (distSq < cullDistSq);
+                }
+            }
+
+            if (isLocked) {
+                if (!isPlayerFrozen) {
+                    const isSprinting = shiftPressed || (isTouchDevice && joyVector.length() > 0.82);
+                    
+                    const walkSpeed = playerSpeedValue;
+                    const sprintSpeed = playerSpeedValue * 1.6;
+                    const activeTargetSpeed = isSprinting ? sprintSpeed : walkSpeed;
+
+                    const inputZ = Number(moveBackward) - Number(moveForward) + joyVector.y; 
+                    const inputX = Number(moveRight) - Number(moveLeft) + joyVector.x;
+                    direction.set(inputX, 0, inputZ); 
+                    if (direction.lengthSq() > 1) direction.normalize();
+
+                    const moveVec = new THREE.Vector3(direction.x, 0, direction.z); 
+                    moveVec.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+
+                    const targetVelocity = moveVec.multiplyScalar(activeTargetSpeed);
+                    playerVelocity.lerp(targetVelocity, 10 * dt);
+
+                    const dx = playerVelocity.x * dt; 
+                    const dz = playerVelocity.z * dt;
+
+                    if (!checkBuildingCollision(camera.position.x + dx, camera.position.y, camera.position.z, 1.2)) {
+                        camera.position.x += dx;
+                    } else {
+                        playerVelocity.x = 0; 
+                    }
+                    if (!checkBuildingCollision(camera.position.x, camera.position.y, camera.position.z + dz, 1.2)) {
+                        camera.position.z += dz;
+                    } else {
+                        playerVelocity.z = 0; 
+                    }
+
+                    const speedSq = playerVelocity.x * playerVelocity.x + playerVelocity.z * playerVelocity.z;
+                    if (speedSq > 0.5) {
+                        const bobCycleSpeed = isSprinting ? 14.0 : 10.0;
+                        bobTimer += dt * bobCycleSpeed;
+
+                        const verticalBobAmp = isSprinting ? 0.3 : 0.15;
+                        camera.position.y = DEFAULT_CAMERA_Y + Math.sin(bobTimer) * verticalBobAmp;
+                        
+                        let targetRoll = 0;
+                        if (moveLeft || (isTouchDevice && joyVector.x < -0.1)) targetRoll = 0.025 * (isSprinting ? 1.5 : 1.0);
+                        if (moveRight || (isTouchDevice && joyVector.x > 0.1)) targetRoll = -0.025 * (isSprinting ? 1.5 : 1.0);
+                        currentRoll = THREE.MathUtils.lerp(currentRoll, targetRoll, 6 * dt);
+                    } else {
+                        bobTimer = 0;
+                        camera.position.y = THREE.MathUtils.lerp(camera.position.y, DEFAULT_CAMERA_Y, 8 * dt);
+                        currentRoll = THREE.MathUtils.lerp(currentRoll, 0, 8 * dt);
+                    }
+
+                    let targetFOV = (isSprinting && speedSq > 5) ? 82 : 75;
+                    if (Math.abs(camera.fov - targetFOV) > 0.1) {
+                        camera.fov = THREE.MathUtils.lerp(camera.fov, targetFOV, 8 * dt);
+                        camera.updateProjectionMatrix();
+                    }
+
+                    camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, currentRoll, 'YXZ'));
+
+                    if (!isMultiplayer) {
+                        const cx = Math.floor((camera.position.x + MAP_SIZE/2) / TILE_SIZE);
+                        const cz = Math.floor((camera.position.z + MAP_SIZE/2) / TILE_SIZE);
+                        if (cx !== lastPlayerGridX || cz !== lastPlayerGridZ) {
+                            updateFlowField();
+                            lastPlayerGridX = cx;
+                            lastPlayerGridZ = cz;
+                        }
+                    }
+
+                    checkObjectiveCollisions();
+                }
+                
+                updateEnemy(dt, time);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
