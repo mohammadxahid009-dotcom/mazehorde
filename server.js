@@ -10,6 +10,7 @@ const MAX_PLAYERS = 2;
 const MAX_CUBES = 5;
 const START_FREEZE_MS = 8000;
 const CAPTURE_DISTANCE = 4.5;
+const STATE_UPDATE_INTERVAL_MS = 50;
 const lobbies = new Map();
 
 function makeId() {
@@ -31,6 +32,15 @@ function makeCode() {
 
 function initialState(x, z) {
   return { x, z, r: 0, scanTrigger: 0, captured: false, cubesCollected: 0 };
+}
+
+function finiteNumber(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
 
 function send(ws, message) {
@@ -63,6 +73,7 @@ function publicLobby(lobby) {
     status: lobby.status,
     createdAt: lobby.createdAt,
     cubeCount: lobby.cubeCount,
+    winner: lobby.winner,
     players,
     state: lobby.state,
   };
@@ -139,6 +150,7 @@ function handleMessage(ws, message) {
           slot: "p1",
           ws,
           lastCollectAt: 0,
+          lastStateAt: 0,
         },
       },
       state: { p1: initialState(0, -15), p2: null },
@@ -168,6 +180,7 @@ function handleMessage(ws, message) {
         slot: "p2",
         ws,
         lastCollectAt: 0,
+        lastStateAt: 0,
       };
       lobby.state.p2 = initialState(0, 15);
     }
@@ -204,6 +217,10 @@ function handleMessage(ws, message) {
     if (players.length !== MAX_PLAYERS || !players.every(([, item]) => item.ready)) {
       return error(ws, "Both players must be ready");
     }
+    const roles = players.map(([, item]) => item.role);
+    if (new Set(roles).size !== MAX_PLAYERS || !roles.includes("seeker") || !roles.includes("hider")) {
+      return error(ws, "Match must have exactly one seeker and one hider");
+    }
     lobby.status = "playing";
     lobby.startedAt = Date.now();
     broadcastLobby(lobby);
@@ -212,12 +229,17 @@ function handleMessage(ws, message) {
 
   if (message.type === "state") {
     if (lobby.status !== "playing" || !message.state) return;
+    const now = Date.now();
+    if (now - player.lastStateAt < STATE_UPDATE_INTERVAL_MS) return;
+    player.lastStateAt = now;
+
     const state = message.state;
+    const previousState = lobby.state[player.slot] || initialState(0, 0);
     const nextState = {
-      x: Number.isFinite(Number(state.x)) ? Math.max(-490, Math.min(490, Number(state.x))) : 0,
-      z: Number.isFinite(Number(state.z)) ? Math.max(-490, Math.min(490, Number(state.z))) : 0,
-      r: Number.isFinite(Number(state.r)) ? Number(state.r) : 0,
-      scanTrigger: Number(state.scanTrigger) || 0,
+      x: clamp(finiteNumber(state.x, previousState.x), -490, 490),
+      z: clamp(finiteNumber(state.z, previousState.z), -490, 490),
+      r: finiteNumber(state.r, previousState.r),
+      scanTrigger: finiteNumber(state.scanTrigger, previousState.scanTrigger),
       captured: false,
       cubesCollected: lobby.cubeCount,
     };
@@ -240,6 +262,7 @@ function handleMessage(ws, message) {
   if (message.type === "collect") {
     if (lobby.status !== "playing" || player.role !== "hider") return;
     const requestedCount = Number(message.count);
+    if (!Number.isInteger(requestedCount) || requestedCount < 1 || requestedCount > MAX_CUBES) return;
     if (requestedCount !== lobby.cubeCount + 1) return;
     if (Date.now() - player.lastCollectAt < 500) return;
     player.lastCollectAt = Date.now();
